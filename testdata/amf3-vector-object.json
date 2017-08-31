@@ -1,0 +1,20 @@
+{
+    "classname": "HogeClass",
+    "file": "amf3-vector-object.bin",
+    "type": 16,
+    "value": [
+        {
+            "index": 0,
+            "msg": "Hello, world!"
+        },
+        {
+            "index": 1,
+            "msg": "こんにちは、世界！"
+        },
+        {
+            "index": 2,
+            "msg": "你好世界"
+        }
+    ],
+    "version": 3
+}

@@ -1,0 +1,11 @@
+{
+    "classname": null,
+    "file": "amf0-ecma-array.bin",
+    "type": 8,
+    "value": {
+        "en": "Hello, world!",
+        "ja": "こんにちは、世界！",
+        "zh": "你好世界"
+    },
+    "version": 0
+}

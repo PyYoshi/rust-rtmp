@@ -1,0 +1,10 @@
+{
+    "classname": null,
+    "file": "amf0-reference-object.bin",
+    "type": 7,
+    "value": {
+        "index": 0,
+        "msg": "Hello, world! こんにちは、世界！"
+    },
+    "version": 0
+}

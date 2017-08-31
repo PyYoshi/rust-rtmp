@@ -1,0 +1,10 @@
+{
+    "classname": null,
+    "file": "amf3-byte-array-object.bin",
+    "type": 12,
+    "value": {
+        "index": 0,
+        "msg": "Hello, world! こんにちは、世界！"
+    },
+    "version": 3
+}
