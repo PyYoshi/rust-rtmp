@@ -1,5 +1,4 @@
 import os
-import base64
 import datetime
 
 from pyamf import amf0, amf3, AMF0, AMF3, MixedArray, xml, register_class, TypedObject
@@ -28,7 +27,7 @@ def build_result(name, amf_version, amf_type, amf_value, amf_bytes, classname=No
         "type": int.from_bytes(amf_type, byteorder='big'),
         "classname": classname,
         "value": amf_value,
-        "amf_bytes_base64": base64.b64encode(amf_bytes),
+        "amf_bytes": amf_bytes,
     }
 
 
@@ -36,11 +35,18 @@ def write_json(output_dir, result):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    output_path = os.path.join(output_dir, result["name"])
-    with open(output_path, "w") as fp:
-        del result["name"]
-        simplejson.dump(result, fp, sort_keys=True,
-                        indent="    ", ensure_ascii=False)
+    output_json_path = os.path.join(output_dir, result["name"] + ".json")
+    with open(output_json_path, "w") as fp_json:
+        amf_file_name = result["name"] + ".bin"
+        output_amf_bin_path = os.path.join(output_dir, amf_file_name)
+        with open(output_amf_bin_path, "wb") as fp_amf_bin:
+            fp_amf_bin.write(result["amf_bytes"])
+
+            del result["name"]
+            del result["amf_bytes"]
+            result["file"] = amf_file_name
+            simplejson.dump(result, fp_json, sort_keys=True,
+                            indent="    ", ensure_ascii=False)
 
 
 ##############################
@@ -53,7 +59,7 @@ def gen_amf0_number():
     enc1 = AMF0Encoder()
     enc1.writeNumber(v1)
     result1 = build_result(
-        "amf0-number.json",
+        "amf0-number",
         AMF0,
         amf0.TYPE_NUMBER,
         v1,
@@ -65,7 +71,7 @@ def gen_amf0_number():
     enc2.writeType(amf0.TYPE_NUMBER)
     enc2.stream.write(b"\xff\xf0\x00\x00\x00\x00\x00\x00")
     result2 = build_result(
-        "amf0-number-negative-infinity.json",
+        "amf0-number-negative-infinity",
         AMF0,
         amf0.TYPE_NUMBER,
         NUMBER_NEGATIVE_INFINITY,
@@ -77,7 +83,7 @@ def gen_amf0_number():
     enc3.writeType(amf0.TYPE_NUMBER)
     enc3.stream.write(b"\x7f\xf0\x00\x00\x00\x00\x00\x00")
     result3 = build_result(
-        "amf0-number-negative-infinity.json",
+        "amf0-number-negative-infinity",
         AMF0,
         amf0.TYPE_NUMBER,
         NUMBER_POSITIVE_INFINITY,
@@ -89,7 +95,7 @@ def gen_amf0_number():
     enc4.writeType(amf0.TYPE_NUMBER)
     enc4.stream.write(b"\xff\xf8\x00\x00\x00\x00\x00\x00")
     result4 = build_result(
-        "amf0-number-nan.json",
+        "amf0-number-nan",
         AMF0,
         amf0.TYPE_NUMBER,
         NUMBER_NAN,
@@ -103,7 +109,7 @@ def gen_amf0_boolean():
     enc1 = AMF0Encoder()
     enc1.writeBoolean(v1)
     result1 = build_result(
-        "amf0-boolean-true.json",
+        "amf0-boolean-true",
         AMF0,
         amf0.TYPE_BOOL,
         v1,
@@ -115,7 +121,7 @@ def gen_amf0_boolean():
     enc2 = AMF0Encoder()
     enc2.writeBoolean(v2)
     result2 = build_result(
-        "amf0-boolean-false.json",
+        "amf0-boolean-false",
         AMF0,
         amf0.TYPE_BOOL,
         v2,
@@ -129,7 +135,7 @@ def gen_amf0_string():
     enc1 = AMF0Encoder()
     enc1.writeString(v1)
     result1 = build_result(
-        "amf0-string.json",
+        "amf0-string",
         AMF0,
         amf0.TYPE_STRING,
         v1,
@@ -146,7 +152,7 @@ def gen_amf0_object():
     enc1 = AMF0Encoder()
     enc1.writeObject(v1)
     result1 = build_result(
-        "amf0-object.json",
+        "amf0-object",
         AMF0,
         amf0.TYPE_OBJECT,
         v1,
@@ -159,7 +165,7 @@ def gen_amf0_movieclip():
     enc1 = AMF0Encoder()
     enc1.writeType(amf0.TYPE_MOVIECLIP)
     result1 = build_result(
-        "amf0-movieclip.json",
+        "amf0-movieclip",
         AMF0,
         amf0.TYPE_MOVIECLIP,
         None,
@@ -172,7 +178,7 @@ def gen_amf0_null():
     enc1 = AMF0Encoder()
     enc1.writeNull("")
     result1 = build_result(
-        "amf0-null.json",
+        "amf0-null",
         AMF0,
         amf0.TYPE_NULL,
         None,
@@ -185,7 +191,7 @@ def gen_amf0_undefined():
     enc1 = AMF0Encoder()
     enc1.writeUndefined("")
     result1 = build_result(
-        "amf0-undefined.json",
+        "amf0-undefined",
         AMF0,
         amf0.TYPE_UNDEFINED,
         None,
@@ -200,7 +206,7 @@ def gen_amf0_reference():
     enc1.writeList(v1)
     enc1.writeList(v1)
     result1 = build_result(
-        "amf0-reference-array-number.json",
+        "amf0-reference-array-number",
         AMF0,
         amf0.TYPE_REFERENCE,
         v1,
@@ -213,7 +219,7 @@ def gen_amf0_reference():
     enc2.writeList(v2)
     enc2.writeList(v2)
     result2 = build_result(
-        "amf0-reference-array-string.json",
+        "amf0-reference-array-string",
         AMF0,
         amf0.TYPE_REFERENCE,
         v2,
@@ -229,7 +235,7 @@ def gen_amf0_reference():
     enc3.writeObject(v3)
     enc3.writeObject(v3)
     result3 = build_result(
-        "amf0-reference-object.json",
+        "amf0-reference-object",
         AMF0,
         amf0.TYPE_REFERENCE,
         v3,
@@ -243,7 +249,7 @@ def gen_amf0_ecma_array():
     enc1 = AMF0Encoder()
     enc1.writeMixedArray(v1)
     result1 = build_result(
-        "amf0-ecma-array.json",
+        "amf0-ecma-array",
         AMF0,
         amf0.TYPE_MIXEDARRAY,
         v1,
@@ -256,7 +262,7 @@ def gen_amf0_object_end():
     enc1 = AMF0Encoder()
     enc1.writeType(amf0.TYPE_OBJECTTERM)
     result1 = build_result(
-        "amf0-object-end.json",
+        "amf0-object-end",
         AMF0,
         amf0.TYPE_OBJECTTERM,
         None,
@@ -270,7 +276,7 @@ def gen_amf0_strict_array():
     enc1 = AMF0Encoder()
     enc1.writeList(v1)
     result1 = build_result(
-        "amf0-strict-array.json",
+        "amf0-strict-array",
         AMF0,
         amf0.TYPE_ARRAY,
         v1,
@@ -284,7 +290,7 @@ def gen_amf0_date():
     enc1 = AMF0Encoder()
     enc1.writeDate(v1)
     result1 = build_result(
-        "amf0-date.json",
+        "amf0-date",
         AMF0,
         amf0.TYPE_DATE,
         v1.timestamp(),
@@ -298,7 +304,7 @@ def gen_amf0_longstring():
     enc1 = AMF0Encoder()
     enc1.writeBytes(v1)
     result1 = build_result(
-        "amf0-long-string.json",
+        "amf0-long-string",
         AMF0,
         amf0.TYPE_LONGSTRING,
         v1,
@@ -311,7 +317,7 @@ def gen_amf0_unsupported():
     enc1 = AMF0Encoder()
     enc1.writeType(amf0.TYPE_UNSUPPORTED)
     result1 = build_result(
-        "amf0-unsupported.json",
+        "amf0-unsupported",
         AMF0,
         amf0.TYPE_UNSUPPORTED,
         None,
@@ -324,7 +330,7 @@ def gen_amf0_recordset():
     enc1 = AMF0Encoder()
     enc1.writeType(amf0.TYPE_RECORDSET)
     result1 = build_result(
-        "amf0-recordset.json",
+        "amf0-recordset",
         AMF0,
         amf0.TYPE_RECORDSET,
         None,
@@ -338,7 +344,7 @@ def gen_amf0_xml_doc():
     enc1 = AMF0Encoder()
     enc1.writeXML(xml.fromstring(v1))
     result1 = build_result(
-        "amf0-xml-doc.json",
+        "amf0-xml-doc",
         AMF0,
         amf0.TYPE_XML,
         v1,
@@ -358,7 +364,7 @@ def gen_amf0_typed_object():
     enc1 = AMF0Encoder()
     enc1.writeObject(v1)
     result1 = build_result(
-        "amf0-typed-object.json",
+        "amf0-typed-object",
         AMF0,
         amf0.TYPE_TYPEDOBJECT,
         v1.__dict__,
@@ -374,7 +380,7 @@ def gen_amf0_avmplus():
     enc1 = AMF0Encoder()
     enc1.writeAMF3(v1)
     result1 = build_result(
-        "amf0-avmplus.json",
+        "amf0-avmplus",
         AMF0,
         amf0.TYPE_AMF3,
         v1,
@@ -391,7 +397,7 @@ def gen_amf3_undefined():
     enc1 = AMF3Encoder()
     enc1.writeUndefined("")
     result1 = build_result(
-        "amf3-undefined.json",
+        "amf3-undefined",
         AMF3,
         amf3.TYPE_UNDEFINED,
         None,
@@ -404,7 +410,7 @@ def gen_amf3_null():
     enc1 = AMF3Encoder()
     enc1.writeNull("")
     result1 = build_result(
-        "amf3-null.json",
+        "amf3-null",
         AMF3,
         amf3.TYPE_NULL,
         None,
@@ -418,7 +424,7 @@ def gen_amf3_false():
     enc1 = AMF3Encoder()
     enc1.writeBoolean(v1)
     result1 = build_result(
-        "amf3-boolean-false.json",
+        "amf3-boolean-false",
         AMF3,
         amf3.TYPE_BOOL_FALSE,
         v1,
@@ -432,7 +438,7 @@ def gen_amf3_true():
     enc1 = AMF3Encoder()
     enc1.writeBoolean(v1)
     result1 = build_result(
-        "amf3-boolean-true.json",
+        "amf3-boolean-true",
         AMF3,
         amf3.TYPE_BOOL_TRUE,
         v1,
@@ -446,7 +452,7 @@ def gen_amf3_integer():
     enc1 = AMF3Encoder()
     enc1.writeInteger(v1)
     result1 = build_result(
-        "amf3-integer-128.json",
+        "amf3-integer-128",
         AMF3,
         amf3.TYPE_INTEGER,
         v1,
@@ -458,7 +464,7 @@ def gen_amf3_integer():
     enc2 = AMF3Encoder()
     enc2.writeInteger(v2)
     result2 = build_result(
-        "amf3-integer-16384.json",
+        "amf3-integer-16384",
         AMF3,
         amf3.TYPE_INTEGER,
         v2,
@@ -470,7 +476,7 @@ def gen_amf3_integer():
     enc3 = AMF3Encoder()
     enc3.writeInteger(v3)
     result3 = build_result(
-        "amf3-integer-0.json",
+        "amf3-integer-0",
         AMF3,
         amf3.TYPE_INTEGER,
         v3,
@@ -482,7 +488,7 @@ def gen_amf3_integer():
     enc4 = AMF3Encoder()
     enc4.writeInteger(v4)
     result4 = build_result(
-        "amf3-integer-min-u29.json",
+        "amf3-integer-min-u29",
         AMF3,
         amf3.TYPE_INTEGER,
         v4,
@@ -494,7 +500,7 @@ def gen_amf3_integer():
     enc5 = AMF3Encoder()
     enc5.writeInteger(v5)
     result5 = build_result(
-        "amf3-integer-max-u29.json",
+        "amf3-integer-max-u29",
         AMF3,
         amf3.TYPE_INTEGER,
         v5,
@@ -508,7 +514,7 @@ def gen_amf3_double():
     enc1 = AMF3Encoder()
     enc1.writeNumber(v1)
     result1 = build_result(
-        "amf3-double-pi.json",
+        "amf3-double-pi",
         AMF3,
         amf3.TYPE_NUMBER,
         v1,
@@ -520,7 +526,7 @@ def gen_amf3_double():
     enc2 = AMF3Encoder()
     enc2.writeNumber(v2)
     result2 = build_result(
-        "amf3-double-min-u29.json",
+        "amf3-double-min-u29",
         AMF3,
         amf3.TYPE_NUMBER,
         v2,
@@ -532,7 +538,7 @@ def gen_amf3_double():
     enc3 = AMF3Encoder()
     enc3.writeNumber(v3)
     result3 = build_result(
-        "amf3-double-max-u29.json",
+        "amf3-double-max-u29",
         AMF3,
         amf3.TYPE_NUMBER,
         v3,
@@ -546,7 +552,7 @@ def gen_amf3_string():
     enc1 = AMF3Encoder()
     enc1.writeString(v1)
     result1 = build_result(
-        "amf3-string.json",
+        "amf3-string",
         AMF3,
         amf3.TYPE_STRING,
         v1,
@@ -561,7 +567,7 @@ def gen_amf3_xml_doc():
     enc1.stream.write(amf3.TYPE_XML)
     enc1.serialiseString(xml.tostring(xml.fromstring(v1)))
     result1 = build_result(
-        "amf3-xml-doc.json",
+        "amf3-xml-doc",
         AMF3,
         amf3.TYPE_XML,
         v1,
@@ -575,7 +581,7 @@ def gen_amf3_date():
     enc1 = AMF3Encoder()
     enc1.writeDate(v1)
     result1 = build_result(
-        "amf3-date.json",
+        "amf3-date",
         AMF3,
         amf3.TYPE_DATE,
         v1.timestamp(),
@@ -589,7 +595,7 @@ def gen_amf3_array():
     enc1 = AMF3Encoder()
     enc1.writeList(v1)
     result1 = build_result(
-        "amf3-array.json",
+        "amf3-array",
         AMF3,
         amf3.TYPE_ARRAY,
         v1,
@@ -606,7 +612,7 @@ def gen_amf3_object():
     enc1 = AMF3Encoder()
     enc1.writeObject(v1)
     result1 = build_result(
-        "amf3-object.json",
+        "amf3-object",
         AMF3,
         amf3.TYPE_OBJECT,
         v1,
@@ -620,7 +626,7 @@ def gen_amf3_xml_string():
     enc1 = AMF3Encoder()
     enc1.writeXML(xml.fromstring(v1))
     result1 = build_result(
-        "amf3-xml.json",
+        "amf3-xml",
         AMF3,
         amf3.TYPE_XMLSTRING,
         v1,
@@ -635,7 +641,7 @@ def gen_amf3_byte_array():
     enc1 = AMF3Encoder()
     enc1.writeByteArray(v1_b)
     result1 = build_result(
-        "amf3-byte-array.json",
+        "amf3-byte-array",
         AMF3,
         amf3.TYPE_BYTEARRAY,
         v1,
@@ -652,7 +658,7 @@ def gen_amf3_byte_array():
     enc2 = AMF3Encoder()
     enc2.writeByteArray(v2_b)
     result2 = build_result(
-        "amf3-byte-array-object.json",
+        "amf3-byte-array-object",
         AMF3,
         amf3.TYPE_BYTEARRAY,
         v2,
@@ -666,7 +672,7 @@ def gen_amf3_vector_int():
     enc1 = AMF3Encoder()
     enc1.writeVector(v1)
     result1 = build_result(
-        "amf3-vector-int.json",
+        "amf3-vector-int",
         AMF3,
         amf3.TYPE_INT_VECTOR,
         v1,
@@ -680,7 +686,7 @@ def gen_amf3_vector_uint():
     enc1 = AMF3Encoder()
     enc1.writeVector(v1)
     result1 = build_result(
-        "amf3-vector-uint.json",
+        "amf3-vector-uint",
         AMF3,
         amf3.TYPE_UINT_VECTOR,
         v1,
@@ -694,7 +700,7 @@ def gen_amf3_vector_double():
     enc1 = AMF3Encoder()
     enc1.writeVector(v1)
     result1 = build_result(
-        "amf3-vector-double.json",
+        "amf3-vector-double",
         AMF3,
         amf3.TYPE_DOUBLE_VECTOR,
         v1,
@@ -723,7 +729,7 @@ def gen_amf3_vector_object():
     enc1 = AMF3Encoder()
     enc1.writeVector(v1)
     result1 = build_result(
-        "amf3-vector-object.json",
+        "amf3-vector-object",
         AMF3,
         amf3.TYPE_OBJECT_VECTOR,
         v1,
@@ -738,7 +744,7 @@ def gen_amf3_dictionary():
     enc1 = AMF3Encoder()
     enc1.writeASDictionary(v1)
     result1 = build_result(
-        "amf3-dictionary.json",
+        "amf3-dictionary",
         AMF3,
         amf3.TYPE_DICTIONARY,
         v1,
