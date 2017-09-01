@@ -83,7 +83,7 @@ def gen_amf0_number():
     enc3.writeType(amf0.TYPE_NUMBER)
     enc3.stream.write(b"\x7f\xf0\x00\x00\x00\x00\x00\x00")
     result3 = build_result(
-        "amf0-number-negative-infinity",
+        "amf0-number-positive-infinity",
         AMF0,
         amf0.TYPE_NUMBER,
         NUMBER_POSITIVE_INFINITY,

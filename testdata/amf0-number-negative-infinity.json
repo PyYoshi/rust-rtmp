@@ -2,6 +2,6 @@
     "classname": null,
     "file": "amf0-number-negative-infinity.bin",
     "type": 0,
-    "value": "Infinity",
+    "value": "-Infinity",
     "version": 0
 }
