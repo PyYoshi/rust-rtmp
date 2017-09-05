@@ -301,9 +301,8 @@ def gen_amf0_date():
 
 def gen_amf0_longstring():
     v1 = "うひょおおおおおおおおおおおおおおおおおおおおおおおおおおおおおお" * 2000
-    v1 = v1.encode('utf-8')
     enc1 = AMF0Encoder()
-    enc1.writeBytes(v1)
+    enc1.writeString(v1)
     result1 = build_result(
         "amf0-long-string",
         AMF0,
