@@ -4,3 +4,4 @@ version = "0.1.0"
 authors = ["PyYoshi <myoshi321go@gmail.com>"]
 
 [dependencies]
+byteorder = "^1.0"
