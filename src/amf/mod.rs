@@ -101,3 +101,4 @@ impl From<string::FromUtf8Error> for DecodeError {
 pub type DecodeResult<T> = Result<T, DecodeError>;
 
 pub mod amf0;
+pub mod amf3;
