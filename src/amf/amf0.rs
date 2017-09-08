@@ -164,8 +164,27 @@ fn decode_value<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
     }
 }
 
-pub fn decode<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
-    decode_value(reader)
+#[derive(Debug)]
+pub struct Decoder<R> {
+    reader: R,
+    objects: Vec<Value>,
+}
+
+impl<R> Decoder<R>
+where
+    R: io::Read,
+{
+    pub fn new(reader: R) -> Self {
+        Decoder {
+            reader: reader,
+            objects: Vec::new(),
+        }
+    }
+
+    pub fn decode(&mut self) -> DecodeResult<Value> {
+        self.objects.clear();
+        decode_value(&mut self.reader)
+    }
 }
 
 #[cfg(test)]
@@ -176,15 +195,19 @@ mod test {
     use std::time;
 
     use super::Value;
-    use super::decode;
     use super::Pair;
     use super::DecodeError;
+    use super::Decoder;
 
     macro_rules! macro_decode {
         ($sample_file: expr) => {
             {
-                let mut reader = BufReader::new(fs::File::open(concat!("./testdata/", $sample_file)).unwrap());
-                decode(&mut reader)
+                let mut decoder = Decoder::new(
+                    BufReader::new(fs::File::open(
+                        concat!("./testdata/", $sample_file)).unwrap()
+                    )
+                );
+                decoder.decode()
             }
         }
     }
