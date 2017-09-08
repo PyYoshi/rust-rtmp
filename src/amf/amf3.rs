@@ -239,13 +239,10 @@ pub fn decode<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
 mod test {
     use std::fs;
     use std::io::BufReader;
-    use std::f64;
     use std::time;
 
     use super::Value;
     use super::decode;
-    use super::Pair;
-    use super::DecodeError;
 
     macro_rules! macro_decode {
         ($sample_file: expr) => {
@@ -341,10 +338,7 @@ mod test {
     fn decode_array() {
         assert!(false, "Not implemented");
 
-        let value = macro_decode!("amf3-byte-array-object.bin");
-        println!("{:?}", value);
-
-        let value = macro_decode!("amf3-byte-array.bin");
+        let value = macro_decode!("amf3-array.bin");
         println!("{:?}", value);
     }
 
@@ -352,7 +346,10 @@ mod test {
     fn decode_byte_array() {
         assert!(false, "Not implemented");
 
-        let value = macro_decode!("amf3-object.bin");
+        let value = macro_decode!("amf3-byte-array-object.bin");
+        println!("{:?}", value);
+
+        let value = macro_decode!("amf3-byte-array.bin");
         println!("{:?}", value);
     }
 
