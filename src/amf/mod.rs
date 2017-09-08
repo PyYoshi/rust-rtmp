@@ -19,6 +19,7 @@ pub enum DecodeError {
     NotExpectedObjectEnd,
     UnknownType { marker: u8 },
     NotSupportedReferenceTables { index: usize },
+    NotFoundInReferenceTable { index: usize },
     ExternalizableType { name: String },
 }
 
@@ -36,6 +37,9 @@ impl fmt::Display for DecodeError {
             DecodeError::UnknownType { marker } => write!(f, "Unknown type: maker={}", marker),
             DecodeError::NotSupportedReferenceTables { index } => {
                 write!(f, "Reference Tables is not supported: index={}", index)
+            }
+            DecodeError::NotFoundInReferenceTable { index } => {
+                write!(f, "Value is not found in reference table: index={}", index)
             }
             DecodeError::ExternalizableType { ref name } => {
                 write!(f, "Externalizable type {:?} is unsupported", name)
@@ -55,6 +59,7 @@ impl error::Error for DecodeError {
             }
             DecodeError::UnknownType { .. } => "Unknown type",
             DecodeError::NotSupportedReferenceTables { .. } => "Reference Tables is not supported",
+            DecodeError::NotFoundInReferenceTable { .. } => "Value is not found in reference table",
             DecodeError::ExternalizableType { .. } => "Unsupported externalizable type",
         }
     }
@@ -79,6 +84,8 @@ impl PartialEq for DecodeError {
             (&DecodeError::NotExpectedObjectEnd, &DecodeError::NotExpectedObjectEnd) => true,
             (&DecodeError::NotSupportedReferenceTables { index: x },
              &DecodeError::NotSupportedReferenceTables { index: y }) => x == y,
+            (&DecodeError::NotFoundInReferenceTable { index: x },
+             &DecodeError::NotFoundInReferenceTable { index: y }) => x == y,
             (&DecodeError::ExternalizableType { name: ref x },
              &DecodeError::ExternalizableType { name: ref y }) => x == y,
             _ => false,
