@@ -48,6 +48,7 @@ pub enum Value {
         /// Entries of the dense part of the array.
         dense_entries: Vec<Value>,
     },
+    ByteArray(Vec<u8>),
 }
 
 #[derive(Debug, Clone)]
@@ -280,9 +281,27 @@ where
         }
     }
 
-    // fn decode_byte_array(&mut self) -> DecodeResult<Value> {
-    //     Ok(Value::Null)
-    // }
+    fn decode_byte_array(&mut self) -> DecodeResult<Value> {
+        let u29 = try!(self.decode_u29()) as usize;
+        let is_reference = (u29 & 0x01) == 0;
+
+        if is_reference {
+            let index = u29 >> 1;
+            self.objects
+                .get(index)
+                .ok_or(DecodeError::NotFoundInReferenceTable { index: index })
+                .and_then(|v| Ok(v.clone()))
+        } else {
+            let index = self.objects.len();
+            self.objects.push(Value::Null);
+
+            let size = u29 >> 1;
+            let value = Value::ByteArray(try!(self.read_bytes(size)));
+
+            self.objects[index] = value.clone();
+            Ok(value)
+        }
+    }
 
     // fn decode_vector_int(&mut self) -> DecodeResult<Value> {
     //     Ok(Value::Null)
@@ -471,13 +490,8 @@ mod test {
 
     #[test]
     fn decode_byte_array() {
-        assert!(false, "Not implemented");
-
-        let value = macro_decode!("amf3-byte-array-object.bin");
-        println!("{:?}", value);
-
-        let value = macro_decode!("amf3-byte-array.bin");
-        println!("{:?}", value);
+        let expected = Value::ByteArray("hello".as_bytes().iter().cloned().collect());
+        macro_decode_equal!("amf3-byte-array.bin", expected);
     }
 
     #[test]
