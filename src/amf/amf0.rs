@@ -47,123 +47,6 @@ pub enum Value {
     XmlDoc(String),
 }
 
-fn decode_number<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
-    let number = try!(reader.read_f64::<BigEndian>());
-    Ok(Value::Number(number))
-}
-
-fn decode_boolean<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
-    let boolean = try!(reader.read_u8()) != 0;
-    Ok(Value::Boolean(boolean))
-}
-
-fn read_utf8<R: io::Read>(reader: &mut R, len: usize) -> DecodeResult<String> {
-    let mut b = vec![0; len];
-    try!(reader.read_exact(&mut b));
-    let u = try!(String::from_utf8(b));
-    Ok(u)
-}
-
-fn decode_string<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
-    let len = try!(reader.read_u16::<BigEndian>()) as usize;
-    read_utf8(reader, len).map(Value::String)
-}
-
-fn decode_long_string<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
-    let len = try!(reader.read_u32::<BigEndian>()) as usize;
-    read_utf8(reader, len).map(Value::LongString)
-}
-
-fn decode_xml_doc<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
-    let len = try!(reader.read_u32::<BigEndian>()) as usize;
-    read_utf8(reader, len).map(Value::XmlDoc)
-}
-
-fn decode_date<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
-    let ms = try!(reader.read_f64::<BigEndian>());
-    try!(reader.read_i16::<BigEndian>()); // skip timezone
-    Ok(Value::Date {
-        unixtime: time::Duration::from_millis(ms as u64),
-    })
-}
-
-fn decode_pairs<R: io::Read>(reader: &mut R) -> DecodeResult<Vec<Pair<String, Value>>> {
-    let mut v = Vec::new();
-    loop {
-        let len = try!(reader.read_u16::<BigEndian>()) as usize;
-        let key = try!(read_utf8(reader, len));
-        match decode_value(reader) {
-            Ok(val) => {
-                v.push(Pair {
-                    key: key,
-                    value: val,
-                });
-            }
-            Err(DecodeError::NotExpectedObjectEnd) if key.is_empty() => break,
-            Err(e) => return Err(e),
-        }
-    }
-    Ok(v)
-}
-
-fn decode_object<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
-    let pairs = try!(decode_pairs(reader));
-    Ok(Value::Object {
-        name: None,
-        pairs: pairs,
-    })
-}
-
-fn decode_ecma_array<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
-    try!(reader.read_u32::<BigEndian>()) as usize; // skip count
-    let pairs = try!(decode_pairs(reader));
-    Ok(Value::EcmaArray { pairs: pairs })
-}
-
-fn decode_strict_array<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
-    let c = try!(reader.read_u32::<BigEndian>()) as usize;
-    let pairs = try!((0..c).map(|_| decode_value(reader)).collect());
-    Ok(Value::Array { pairs: pairs })
-}
-
-fn decode_typed_object<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
-    let len = try!(reader.read_u16::<BigEndian>()) as usize;
-    let name = try!(read_utf8(reader, len));
-    let pairs = try!(decode_pairs(reader));
-    Ok(Value::Object {
-        name: Some(name),
-        pairs: pairs,
-    })
-}
-
-fn decode_value<R: io::Read>(reader: &mut R) -> DecodeResult<Value> {
-    let marker = try!(reader.read_u8());
-    match marker {
-        Marker::NUMBER => decode_number(reader),
-        Marker::BOOLEAN => decode_boolean(reader),
-        Marker::STRING => decode_string(reader),
-        Marker::OBJECT => decode_object(reader),
-        Marker::ECMA_ARRAY => decode_ecma_array(reader),
-        Marker::STRICT_ARRAY => decode_strict_array(reader),
-        Marker::DATE => decode_date(reader),
-        Marker::LONG_STRING => decode_long_string(reader),
-        Marker::XML_DOC => decode_xml_doc(reader),
-        Marker::TYPED_OBJECT => decode_typed_object(reader),
-
-        Marker::OBJECT_END => Err(DecodeError::NotExpectedObjectEnd),
-
-        Marker::NULL => Ok(Value::Null),
-        Marker::UNDEFINED => Ok(Value::Undefined),
-        Marker::REFERENCE => Err(DecodeError::NotSupportedType { marker }),
-        Marker::UNSUPPORTED => Err(DecodeError::NotSupportedType { marker }),
-        Marker::RECORDSET => Err(DecodeError::NotSupportedType { marker }),
-        Marker::MOVIECLIP => Err(DecodeError::NotSupportedType { marker }),
-        Marker::AVMPLUS => Err(DecodeError::NotSupportedType { marker }),
-
-        _ => Err(DecodeError::UnknownType { marker }),
-    }
-}
-
 #[derive(Debug)]
 pub struct Decoder<R> {
     reader: R,
@@ -183,7 +66,124 @@ where
 
     pub fn decode(&mut self) -> DecodeResult<Value> {
         self.objects.clear();
-        decode_value(&mut self.reader)
+        self.decode_value()
+    }
+
+    fn read_utf8(&mut self, len: usize) -> DecodeResult<String> {
+        let mut b = vec![0; len];
+        try!(self.reader.read_exact(&mut b));
+        let u = try!(String::from_utf8(b));
+        Ok(u)
+    }
+
+    fn decode_pairs(&mut self) -> DecodeResult<Vec<Pair<String, Value>>> {
+        let mut v = Vec::new();
+        loop {
+            let len = try!(self.reader.read_u16::<BigEndian>()) as usize;
+            let key = try!(self.read_utf8(len));
+            match self.decode_value() {
+                Ok(val) => {
+                    v.push(Pair {
+                        key: key,
+                        value: val,
+                    });
+                }
+                Err(DecodeError::NotExpectedObjectEnd) if key.is_empty() => break,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(v)
+    }
+
+    fn decode_number(&mut self) -> DecodeResult<Value> {
+        let number = try!(self.reader.read_f64::<BigEndian>());
+        Ok(Value::Number(number))
+    }
+
+    fn decode_boolean(&mut self) -> DecodeResult<Value> {
+        let boolean = try!(self.reader.read_u8()) != 0;
+        Ok(Value::Boolean(boolean))
+    }
+
+    fn decode_string(&mut self) -> DecodeResult<Value> {
+        let len = try!(self.reader.read_u16::<BigEndian>()) as usize;
+        self.read_utf8(len).map(Value::String)
+    }
+
+    fn decode_long_string(&mut self) -> DecodeResult<Value> {
+        let len = try!(self.reader.read_u32::<BigEndian>()) as usize;
+        self.read_utf8(len).map(Value::LongString)
+    }
+
+    fn decode_xml_doc(&mut self) -> DecodeResult<Value> {
+        let len = try!(self.reader.read_u32::<BigEndian>()) as usize;
+        self.read_utf8(len).map(Value::XmlDoc)
+    }
+
+    fn decode_date(&mut self) -> DecodeResult<Value> {
+        let ms = try!(self.reader.read_f64::<BigEndian>());
+        try!(self.reader.read_i16::<BigEndian>()); // skip timezone
+        Ok(Value::Date {
+            unixtime: time::Duration::from_millis(ms as u64),
+        })
+    }
+
+    fn decode_object(&mut self) -> DecodeResult<Value> {
+        let pairs = try!(self.decode_pairs());
+        Ok(Value::Object {
+            name: None,
+            pairs: pairs,
+        })
+    }
+
+    fn decode_ecma_array(&mut self) -> DecodeResult<Value> {
+        try!(self.reader.read_u32::<BigEndian>()) as usize; // skip count
+        let pairs = try!(self.decode_pairs());
+        Ok(Value::EcmaArray { pairs: pairs })
+    }
+
+    fn decode_strict_array(&mut self) -> DecodeResult<Value> {
+        let c = try!(self.reader.read_u32::<BigEndian>()) as usize;
+        let pairs = try!((0..c).map(|_| self.decode_value()).collect());
+        Ok(Value::Array { pairs: pairs })
+    }
+
+    fn decode_typed_object(&mut self) -> DecodeResult<Value> {
+        let len = try!(self.reader.read_u16::<BigEndian>()) as usize;
+        let name = try!(self.read_utf8(len));
+        let pairs = try!(self.decode_pairs());
+        Ok(Value::Object {
+            name: Some(name),
+            pairs: pairs,
+        })
+    }
+
+    fn decode_value(&mut self) -> DecodeResult<Value> {
+        let marker = try!(self.reader.read_u8());
+        match marker {
+            Marker::NUMBER => self.decode_number(),
+            Marker::BOOLEAN => self.decode_boolean(),
+            Marker::STRING => self.decode_string(),
+            Marker::OBJECT => self.decode_object(),
+            Marker::ECMA_ARRAY => self.decode_ecma_array(),
+            Marker::STRICT_ARRAY => self.decode_strict_array(),
+            Marker::DATE => self.decode_date(),
+            Marker::LONG_STRING => self.decode_long_string(),
+            Marker::XML_DOC => self.decode_xml_doc(),
+            Marker::TYPED_OBJECT => self.decode_typed_object(),
+
+            Marker::NULL => Ok(Value::Null),
+            Marker::UNDEFINED => Ok(Value::Undefined),
+
+            Marker::OBJECT_END => Err(DecodeError::NotExpectedObjectEnd),
+            Marker::REFERENCE => Err(DecodeError::NotSupportedType { marker }),
+            Marker::UNSUPPORTED => Err(DecodeError::NotSupportedType { marker }),
+            Marker::RECORDSET => Err(DecodeError::NotSupportedType { marker }),
+            Marker::MOVIECLIP => Err(DecodeError::NotSupportedType { marker }),
+            Marker::AVMPLUS => Err(DecodeError::NotSupportedType { marker }),
+
+            _ => Err(DecodeError::UnknownType { marker }),
+        }
     }
 }
 
