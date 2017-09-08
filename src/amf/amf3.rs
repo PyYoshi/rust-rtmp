@@ -41,6 +41,13 @@ pub enum Value {
         pairs: Vec<Pair<String, Value>>,
     },
     Xml(String),
+    Array {
+        /// Entries of the associative part of the array.
+        assoc_entries: Vec<Pair<String, Value>>,
+
+        /// Entries of the dense part of the array.
+        dense_entries: Vec<Value>,
+    },
 }
 
 #[derive(Debug)]
@@ -156,12 +163,18 @@ where
         let s = try!(self.decode_utf8());
         Ok(Value::XmlDoc(s))
     }
+
     fn decode_date(&mut self) -> DecodeResult<Value> {
         try!(self.decode_u29()) as usize; // skip
         let millis = try!(self.reader.read_f64::<BigEndian>());
         Ok(Value::Date {
             unixtime: time::Duration::from_millis(millis as u64),
         })
+    }
+
+    fn decode_xml(&mut self) -> DecodeResult<Value> {
+        let s = try!(self.decode_utf8());
+        Ok(Value::Xml(s))
     }
 
     fn decode_object(&mut self) -> DecodeResult<Value> {
@@ -222,10 +235,57 @@ where
         }
     }
 
-    fn decode_xml(&mut self) -> DecodeResult<Value> {
-        let s = try!(self.decode_utf8());
-        Ok(Value::Xml(s))
+    fn decode_array(&mut self) -> DecodeResult<Value> {
+        let u29 = try!(self.decode_u29()) as usize;
+        let is_reference = (u29 & 0x01) == 0;
+
+        if is_reference {
+            let index = u29 >> 1;
+            self.objects
+                .get(index)
+                .ok_or(DecodeError::NotFoundInReferenceTable { index: index })
+                .and_then(|v| Ok(v.clone()))
+        } else {
+            let index = self.objects.len();
+            self.objects.push(Value::Null);
+
+            let size = u29 >> 1;
+            let assoc = try!(self.decode_pairs());
+            let dense = try!((0..size).map(|_| self.decode_value()).collect());
+
+            let value = Value::Array {
+                assoc_entries: assoc,
+                dense_entries: dense,
+            };
+
+            self.objects[index] = value.clone();
+            Ok(value)
+        }
     }
+
+    // fn decode_byte_array(&mut self) -> DecodeResult<Value> {
+    //     Ok(Value::Null)
+    // }
+
+    // fn decode_vector_int(&mut self) -> DecodeResult<Value> {
+    //     Ok(Value::Null)
+    // }
+
+    //  fn decode_vector_uint(&mut self) -> DecodeResult<Value> {
+    //     Ok(Value::Null)
+    // }
+
+    // fn decode_vector_double(&mut self) -> DecodeResult<Value> {
+    //     Ok(Value::Null)
+    // }
+
+    // fn decode_vector_object(&mut self) -> DecodeResult<Value> {
+    //     Ok(Value::Null)
+    // }
+
+    // fn decode_dictionary(&mut self) -> DecodeResult<Value> {
+    //     Ok(Value::Null)
+    // }
 
     fn decode_value(&mut self) -> DecodeResult<Value> {
         let marker = try!(self.reader.read_u8());
@@ -239,10 +299,10 @@ where
             Marker::STRING => self.decode_string(),
             Marker::XML_DOC => self.decode_xml_doc(),
             Marker::DATE => self.decode_date(),
-            Marker::OBJECT => self.decode_object(),
             Marker::XML => self.decode_xml(),
+            Marker::ARRAY => self.decode_array(),
 
-            Marker::ARRAY => Err(DecodeError::NotSupportedType { marker }),
+            Marker::OBJECT => Err(DecodeError::NotSupportedType { marker }),
             Marker::BYTE_ARRAY => Err(DecodeError::NotSupportedType { marker }),
             Marker::VECTOR_INT => Err(DecodeError::NotSupportedType { marker }),
             Marker::VECTOR_UINT => Err(DecodeError::NotSupportedType { marker }),
@@ -263,6 +323,7 @@ mod test {
 
     use super::Value;
     use super::Decoder;
+    use super::Pair;
 
     macro_rules! macro_decode {
         ($sample_file: expr) => {
@@ -360,10 +421,35 @@ mod test {
 
     #[test]
     fn decode_array() {
-        assert!(false, "Not implemented");
+        let expected1 = Value::Array {
+            assoc_entries: vec![
+                Pair {
+                    key: "en".to_string(),
+                    value: Value::String("Hello, world!".to_string()),
+                },
+                Pair {
+                    key: "ja".to_string(),
+                    value: Value::String("こんにちは、世界！".to_string()),
+                },
+                Pair {
+                    key: "zh".to_string(),
+                    value: Value::String("你好世界".to_string()),
+                },
+            ],
+            dense_entries: vec![],
+        };
+        macro_decode_equal!("amf3-array-assoc.bin", expected1);
 
-        let value = macro_decode!("amf3-array.bin");
-        println!("{:?}", value);
+        let expected2 = Value::Array {
+            assoc_entries: vec![],
+            dense_entries: vec![
+                Value::Double(1.1_f64),
+                Value::Integer(2_i32),
+                Value::Double(3.3_f64),
+                Value::String("こんにちは、世界！".to_string()),
+            ],
+        };
+        macro_decode_equal!("amf3-array-dense.bin", expected2);
     }
 
     #[test]
