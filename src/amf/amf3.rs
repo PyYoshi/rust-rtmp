@@ -50,10 +50,19 @@ pub enum Value {
     },
 }
 
+#[derive(Debug, Clone)]
+struct Class {
+    name: Option<String>,
+    is_dynamic: bool,
+    fields: Vec<String>,
+}
+
 #[derive(Debug)]
 pub struct Decoder<R> {
     reader: R,
     objects: Vec<Value>,
+    strings: Vec<String>,
+    classes: Vec<Class>,
 }
 
 impl<R> Decoder<R>
@@ -64,11 +73,15 @@ where
         Decoder {
             reader: reader,
             objects: Vec::new(),
+            strings: Vec::new(),
+            classes: Vec::new(),
         }
     }
 
     pub fn decode(&mut self) -> DecodeResult<Value> {
         self.objects.clear();
+        self.strings.clear();
+        self.classes.clear();
         self.decode_value()
     }
 
@@ -114,11 +127,15 @@ where
     fn decode_utf8(&mut self) -> DecodeResult<String> {
         let u29 = try!(self.decode_u29()) as usize;
         let is_reference = (u29 & 0x1) == 0;
-        let value = u29 >> 1;
         if is_reference {
-            Err(DecodeError::NotSupportedReferenceTables { index: value })
+            let index = u29 >> 1;
+            self.strings
+                .get(index)
+                .ok_or(DecodeError::NotFoundInReferenceTable { index: index })
+                .and_then(|v| Ok(v.clone()))
         } else {
-            let bytes = try!(self.read_bytes(value));
+            let size = u29 >> 1;
+            let bytes = try!(self.read_bytes(size));
             let s = try!(String::from_utf8(bytes));
             Ok(s)
         }
@@ -301,9 +318,9 @@ where
             Marker::DATE => self.decode_date(),
             Marker::XML => self.decode_xml(),
             Marker::ARRAY => self.decode_array(),
+            Marker::BYTE_ARRAY => self.decode_byte_array(),
 
             Marker::OBJECT => Err(DecodeError::NotSupportedType { marker }),
-            Marker::BYTE_ARRAY => Err(DecodeError::NotSupportedType { marker }),
             Marker::VECTOR_INT => Err(DecodeError::NotSupportedType { marker }),
             Marker::VECTOR_UINT => Err(DecodeError::NotSupportedType { marker }),
             Marker::VECTOR_DOUBLE => Err(DecodeError::NotSupportedType { marker }),
