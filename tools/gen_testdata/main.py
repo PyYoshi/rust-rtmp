@@ -595,11 +595,23 @@ def gen_amf3_array():
     enc1 = AMF3Encoder()
     enc1.writeList(v1)
     result1 = build_result(
-        "amf3-array",
+        "amf3-array-dense",
         AMF3,
         amf3.TYPE_ARRAY,
         v1,
         enc1.stream.getvalue()
+    )
+    write_json(OUTPUT_DIR, result1)
+
+    v2 = MixedArray(en="Hello, world!", ja="こんにちは、世界！", zh="你好世界")
+    enc2 = AMF3Encoder()
+    enc2.writeDict(v2)
+    result1 = build_result(
+        "amf3-array-assoc",
+        AMF3,
+        amf3.TYPE_ARRAY,
+        v2,
+        enc2.stream.getvalue()
     )
     write_json(OUTPUT_DIR, result1)
 
