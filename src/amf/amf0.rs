@@ -130,32 +130,65 @@ where
 
     fn decode_object(&mut self) -> DecodeResult<Value> {
         let pairs = try!(self.decode_pairs());
-        Ok(Value::Object {
+        let value = Value::Object {
             name: None,
             pairs: pairs,
-        })
+        };
+
+        let index = self.objects.len();
+        self.objects.push(Value::Null); // 空の値を入れておく
+        self.objects[index] = value.clone(); // 空の値を置いたindexに上書き
+
+        Ok(value)
     }
 
     fn decode_ecma_array(&mut self) -> DecodeResult<Value> {
         try!(self.reader.read_u32::<BigEndian>()) as usize; // skip count
         let pairs = try!(self.decode_pairs());
-        Ok(Value::EcmaArray { pairs: pairs })
+        let value = Value::EcmaArray { pairs: pairs };
+
+        let index = self.objects.len();
+        self.objects.push(Value::Null); // 空の値を入れておく
+        self.objects[index] = value.clone(); // 空の値を置いたindexに上書き
+
+        Ok(value)
     }
 
     fn decode_strict_array(&mut self) -> DecodeResult<Value> {
         let c = try!(self.reader.read_u32::<BigEndian>()) as usize;
         let pairs = try!((0..c).map(|_| self.decode_value()).collect());
-        Ok(Value::Array { pairs: pairs })
+        let value = Value::Array { pairs: pairs };
+
+        let index = self.objects.len();
+        self.objects.push(Value::Null); // 空の値を入れておく
+        self.objects[index] = value.clone(); // 空の値を置いたindexに上書き
+
+        Ok(value)
     }
 
     fn decode_typed_object(&mut self) -> DecodeResult<Value> {
         let len = try!(self.reader.read_u16::<BigEndian>()) as usize;
         let name = try!(self.read_utf8(len));
         let pairs = try!(self.decode_pairs());
-        Ok(Value::Object {
+        let value = Value::Object {
             name: Some(name),
             pairs: pairs,
-        })
+        };
+
+        let index = self.objects.len();
+        self.objects.push(Value::Null); // 空の値を入れておく
+        self.objects[index] = value.clone(); // 空の値を置いたindexに上書き
+
+        Ok(value)
+    }
+
+    // object, typed object, strict array or ecma array
+    fn decode_reference(&mut self) -> DecodeResult<Value> {
+        let index = try!(self.reader.read_u16::<BigEndian>()) as usize;
+        self.objects
+            .get(index)
+            .ok_or(DecodeError::NotFoundInReferenceTable { index: index })
+            .and_then(|v| Ok(v.clone()))
     }
 
     fn decode_value(&mut self) -> DecodeResult<Value> {
@@ -171,12 +204,11 @@ where
             Marker::LONG_STRING => self.decode_long_string(),
             Marker::XML_DOC => self.decode_xml_doc(),
             Marker::TYPED_OBJECT => self.decode_typed_object(),
-
+            Marker::REFERENCE => self.decode_reference(),
             Marker::NULL => Ok(Value::Null),
             Marker::UNDEFINED => Ok(Value::Undefined),
 
             Marker::OBJECT_END => Err(DecodeError::NotExpectedObjectEnd),
-            Marker::REFERENCE => Err(DecodeError::NotSupportedType { marker }),
             Marker::UNSUPPORTED => Err(DecodeError::NotSupportedType { marker }),
             Marker::RECORDSET => Err(DecodeError::NotSupportedType { marker }),
             Marker::MOVIECLIP => Err(DecodeError::NotSupportedType { marker }),
