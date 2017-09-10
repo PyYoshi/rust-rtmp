@@ -20,6 +20,35 @@ NUMBER_POSITIVE_INFINITY = "Infinity"
 NUMBER_NAN = "NaN"
 
 
+class HogeClass:
+    def __init__(self, index, msg):
+        self.index = index
+        self.msg = msg
+
+
+class NoDynamicHogeClass:
+    def __init__(self, index, msg):
+        self.index = index
+        self.msg = msg
+
+    class __amf__:
+        dynamic = False
+
+
+class DynamicHogeClass:
+    def __init__(self, index, msg):
+        self.index = index
+        self.msg = msg
+
+    class __amf__:
+        dynamic = True
+
+
+register_class(HogeClass, "com.pyyoshi.hogeclass")
+register_class(DynamicHogeClass, "com.pyyoshi.dynamichogeclass")
+register_class(NoDynamicHogeClass, "com.pyyoshi.nodynamichogeclass")
+
+
 def build_result(name, amf_version, amf_type, amf_value, amf_bytes, classname=None):
     return {
         "name": name,
@@ -354,12 +383,6 @@ def gen_amf0_xml_doc():
 
 
 def gen_amf0_typed_object():
-    class HogeClass:
-        def __init__(self, index, msg):
-            self.index = index
-            self.msg = msg
-    register_class(HogeClass, "com.pyyoshi.hogeclass")
-
     v1 = HogeClass(0, "fugaaaaaaa")
     enc1 = AMF0Encoder()
     enc1.writeObject(v1)
@@ -617,20 +640,54 @@ def gen_amf3_array():
 
 
 def gen_amf3_object():
-    v1 = {
-        "msg": "Hello, world! こんにちは、世界！",
-        "index": 0,
-    }
+    v1 = NoDynamicHogeClass(0, "fugaaaaaaa")
     enc1 = AMF3Encoder()
     enc1.writeObject(v1)
     result1 = build_result(
         "amf3-object",
         AMF3,
         amf3.TYPE_OBJECT,
-        v1,
+        v1.__dict__,
         enc1.stream.getvalue()
     )
     write_json(OUTPUT_DIR, result1)
+
+    v2 = HogeClass(0, "fugaaaaaaa")
+    enc2 = AMF3Encoder()
+    enc2.writeObject(v2)
+    enc2.writeObject(v2)
+    result2 = build_result(
+        "amf3-object-ref",
+        AMF3,
+        amf3.TYPE_OBJECT,
+        v2.__dict__,
+        enc2.stream.getvalue()
+    )
+    write_json(OUTPUT_DIR, result2)
+
+    v3 = NoDynamicHogeClass(0, "fugaaaaaaa")
+    enc3 = AMF3Encoder()
+    enc3.writeObject(v3)
+    result3 = build_result(
+        "amf3-object-typed",
+        AMF3,
+        amf3.TYPE_OBJECT,
+        v3.__dict__,
+        enc3.stream.getvalue()
+    )
+    write_json(OUTPUT_DIR, result3)
+
+    v4 = DynamicHogeClass(0, "fugaaaaaaa")
+    enc4 = AMF3Encoder()
+    enc4.writeObject(v4)
+    result4 = build_result(
+        "amf3-object-dynamic",
+        AMF3,
+        amf3.TYPE_OBJECT,
+        v4.__dict__,
+        enc4.stream.getvalue()
+    )
+    write_json(OUTPUT_DIR, result4)
 
 
 def gen_amf3_xml_string():
