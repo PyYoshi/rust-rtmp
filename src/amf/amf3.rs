@@ -15,15 +15,15 @@ pub mod Marker {
     pub const STRING: u8 = 0x06;
     pub const XML_DOC: u8 = 0x07;
     pub const DATE: u8 = 0x08;
-    pub const ARRAY: u8 = 0x09; // not supported
+    pub const ARRAY: u8 = 0x09;
     pub const OBJECT: u8 = 0x0A;
     pub const XML: u8 = 0x0B;
-    pub const BYTE_ARRAY: u8 = 0x0C; // not supported
-    pub const VECTOR_INT: u8 = 0x0D; // not supported
-    pub const VECTOR_UINT: u8 = 0x0E; // not supported
-    pub const VECTOR_DOUBLE: u8 = 0x0F; // not supported
-    pub const VECTOR_OBJECT: u8 = 0x10; // not supported
-    pub const DICTIONARY: u8 = 0x11; // not supported
+    pub const BYTE_ARRAY: u8 = 0x0C;
+    pub const VECTOR_INT: u8 = 0x0D;
+    pub const VECTOR_UINT: u8 = 0x0E;
+    pub const VECTOR_DOUBLE: u8 = 0x0F;
+    pub const VECTOR_OBJECT: u8 = 0x10;
+    pub const DICTIONARY: u8 = 0x11;
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -42,13 +42,22 @@ pub enum Value {
     },
     Xml(String),
     Array {
-        /// Entries of the associative part of the array.
         assoc_entries: Vec<Pair<String, Value>>,
-
-        /// Entries of the dense part of the array.
         dense_entries: Vec<Value>,
     },
     ByteArray(Vec<u8>),
+    IntVector { is_fixed: bool, entries: Vec<i32> },
+    UintVector { is_fixed: bool, entries: Vec<u32> },
+    DoubleVector { is_fixed: bool, entries: Vec<f64> },
+    ObjectVector {
+        name: Option<String>,
+        is_fixed: bool,
+        entries: Vec<Value>,
+    },
+    Dictionary {
+        is_weak: bool,
+        entries: Vec<Pair<Value, Value>>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -128,6 +137,7 @@ where
     fn decode_utf8(&mut self) -> DecodeResult<String> {
         let u29 = try!(self.decode_u29()) as usize;
         let is_reference = (u29 & 0x1) == 0;
+
         if is_reference {
             let index = u29 >> 1;
             self.strings
@@ -138,6 +148,9 @@ where
             let size = u29 >> 1;
             let bytes = try!(self.read_bytes(size));
             let s = try!(String::from_utf8(bytes));
+            if !s.is_empty() {
+                self.strings.push(s.clone());
+            }
             Ok(s)
         }
     }
@@ -178,8 +191,21 @@ where
     }
 
     fn decode_xml_doc(&mut self) -> DecodeResult<Value> {
-        let s = try!(self.decode_utf8());
-        Ok(Value::XmlDoc(s))
+        let u29 = try!(self.decode_u29()) as usize;
+        let is_reference = (u29 & 0x1) == 0;
+
+        if is_reference {
+            let index = u29 >> 1;
+            self.objects
+                .get(index)
+                .ok_or(DecodeError::NotFoundInReferenceTable { index: index })
+                .and_then(|v| Ok(v.clone()))
+        } else {
+            let size = u29 >> 1;
+            self.read_bytes(size)
+                .and_then(|b| Ok(try!(String::from_utf8(b))))
+                .map(Value::XmlDoc)
+        }
     }
 
     fn decode_date(&mut self) -> DecodeResult<Value> {
@@ -191,8 +217,21 @@ where
     }
 
     fn decode_xml(&mut self) -> DecodeResult<Value> {
-        let s = try!(self.decode_utf8());
-        Ok(Value::Xml(s))
+        let u29 = try!(self.decode_u29()) as usize;
+        let is_reference = (u29 & 0x1) == 0;
+
+        if is_reference {
+            let index = u29 >> 1;
+            self.objects
+                .get(index)
+                .ok_or(DecodeError::NotFoundInReferenceTable { index: index })
+                .and_then(|v| Ok(v.clone()))
+        } else {
+            let size = u29 >> 1;
+            self.read_bytes(size)
+                .and_then(|b| Ok(try!(String::from_utf8(b))))
+                .map(Value::Xml)
+        }
     }
 
     fn decode_object(&mut self) -> DecodeResult<Value> {
@@ -267,7 +306,6 @@ where
                 if klass.is_dynamic {
                     pairs.extend(try!(self.decode_pairs()));
                 }
-                println!("{:?}", self.classes);
                 Ok(Value::Object {
                     name: klass.name,
                     pairs: pairs,
@@ -326,25 +364,168 @@ where
         }
     }
 
-    // fn decode_vector_int(&mut self) -> DecodeResult<Value> {
-    //     Ok(Value::Null)
-    // }
+    fn decode_vector_int(&mut self) -> DecodeResult<Value> {
+        let u29 = try!(self.decode_u29()) as usize;
+        let is_reference = (u29 & 0x01) == 0;
 
-    //  fn decode_vector_uint(&mut self) -> DecodeResult<Value> {
-    //     Ok(Value::Null)
-    // }
+        if is_reference {
+            let index = u29 >> 1;
+            self.objects
+                .get(index)
+                .ok_or(DecodeError::NotFoundInReferenceTable { index: index })
+                .and_then(|v| Ok(v.clone()))
+        } else {
+            let index = self.objects.len();
+            self.objects.push(Value::Null);
 
-    // fn decode_vector_double(&mut self) -> DecodeResult<Value> {
-    //     Ok(Value::Null)
-    // }
+            let size = u29 >> 1;
+            let is_fixed = try!(self.reader.read_u8()) != 0;
+            let entries = try!(
+                (0..size)
+                    .map(|_| self.reader.read_i32::<BigEndian>())
+                    .collect()
+            );
 
-    // fn decode_vector_object(&mut self) -> DecodeResult<Value> {
-    //     Ok(Value::Null)
-    // }
+            let value = Value::IntVector {
+                is_fixed: is_fixed,
+                entries: entries,
+            };
 
-    // fn decode_dictionary(&mut self) -> DecodeResult<Value> {
-    //     Ok(Value::Null)
-    // }
+            self.objects[index] = value.clone();
+            Ok(value)
+        }
+    }
+
+    fn decode_vector_uint(&mut self) -> DecodeResult<Value> {
+        let u29 = try!(self.decode_u29()) as usize;
+        let is_reference = (u29 & 0x01) == 0;
+
+        if is_reference {
+            let index = u29 >> 1;
+            self.objects
+                .get(index)
+                .ok_or(DecodeError::NotFoundInReferenceTable { index: index })
+                .and_then(|v| Ok(v.clone()))
+        } else {
+            let index = self.objects.len();
+            self.objects.push(Value::Null);
+
+            let size = u29 >> 1;
+            let is_fixed = try!(self.reader.read_u8()) != 0;
+            let entries = try!(
+                (0..size)
+                    .map(|_| self.reader.read_u32::<BigEndian>())
+                    .collect()
+            );
+
+            let value = Value::UintVector {
+                is_fixed: is_fixed,
+                entries: entries,
+            };
+
+            self.objects[index] = value.clone();
+            Ok(value)
+        }
+    }
+
+    fn decode_vector_double(&mut self) -> DecodeResult<Value> {
+        let u29 = try!(self.decode_u29()) as usize;
+        let is_reference = (u29 & 0x01) == 0;
+
+        if is_reference {
+            let index = u29 >> 1;
+            self.objects
+                .get(index)
+                .ok_or(DecodeError::NotFoundInReferenceTable { index: index })
+                .and_then(|v| Ok(v.clone()))
+        } else {
+            let index = self.objects.len();
+            self.objects.push(Value::Null);
+
+            let size = u29 >> 1;
+            let is_fixed = try!(self.reader.read_u8()) != 0;
+            let entries = try!(
+                (0..size)
+                    .map(|_| self.reader.read_f64::<BigEndian>())
+                    .collect()
+            );
+
+            let value = Value::DoubleVector {
+                is_fixed: is_fixed,
+                entries: entries,
+            };
+
+            self.objects[index] = value.clone();
+            Ok(value)
+        }
+    }
+
+    fn decode_vector_object(&mut self) -> DecodeResult<Value> {
+        let u29 = try!(self.decode_u29()) as usize;
+        let is_reference = (u29 & 0x01) == 0;
+
+        if is_reference {
+            let index = u29 >> 1;
+            self.objects
+                .get(index)
+                .ok_or(DecodeError::NotFoundInReferenceTable { index: index })
+                .and_then(|v| Ok(v.clone()))
+        } else {
+            let index = self.objects.len();
+            self.objects.push(Value::Null);
+
+            let size = u29 >> 1;
+            let is_fixed = try!(self.reader.read_u8()) != 0;
+            let name = try!(self.decode_utf8());
+            let entries = try!((0..size).map(|_| self.decode_value()).collect());
+
+            let value = Value::ObjectVector {
+                name: if name == "*" { None } else { Some(name) },
+                is_fixed: is_fixed,
+                entries: entries,
+            };
+
+            self.objects[index] = value.clone();
+            Ok(value)
+        }
+    }
+
+    fn decode_dictionary(&mut self) -> DecodeResult<Value> {
+        let u29 = try!(self.decode_u29()) as usize;
+        let is_reference = (u29 & 0x01) == 0;
+
+        if is_reference {
+            let index = u29 >> 1;
+            self.objects
+                .get(index)
+                .ok_or(DecodeError::NotFoundInReferenceTable { index: index })
+                .and_then(|v| Ok(v.clone()))
+        } else {
+            let index = self.objects.len();
+            self.objects.push(Value::Null);
+
+            let size = u29 >> 1;
+            let is_weak = try!(self.reader.read_u8()) == 1;
+            let entries = try!(
+                (0..size)
+                    .map(|_| {
+                        Ok(Pair {
+                            key: try!(self.decode_value()),
+                            value: try!(self.decode_value()),
+                        })
+                    })
+                    .collect::<DecodeResult<_>>()
+            );
+
+            let value = Value::Dictionary {
+                is_weak: is_weak,
+                entries: entries,
+            };
+
+            self.objects[index] = value.clone();
+            Ok(value)
+        }
+    }
 
     fn decode_value(&mut self) -> DecodeResult<Value> {
         let marker = try!(self.reader.read_u8());
@@ -362,12 +543,11 @@ where
             Marker::ARRAY => self.decode_array(),
             Marker::BYTE_ARRAY => self.decode_byte_array(),
             Marker::OBJECT => self.decode_object(),
-
-            Marker::VECTOR_INT => Err(DecodeError::NotSupportedType { marker }),
-            Marker::VECTOR_UINT => Err(DecodeError::NotSupportedType { marker }),
-            Marker::VECTOR_DOUBLE => Err(DecodeError::NotSupportedType { marker }),
-            Marker::VECTOR_OBJECT => Err(DecodeError::NotSupportedType { marker }),
-            Marker::DICTIONARY => Err(DecodeError::NotSupportedType { marker }),
+            Marker::VECTOR_INT => self.decode_vector_int(),
+            Marker::VECTOR_UINT => self.decode_vector_uint(),
+            Marker::VECTOR_DOUBLE => self.decode_vector_double(),
+            Marker::VECTOR_OBJECT => self.decode_vector_object(),
+            Marker::DICTIONARY => self.decode_dictionary(),
 
             _ => Err(DecodeError::UnknownType { marker }),
         }
@@ -556,41 +736,100 @@ mod test {
 
     #[test]
     fn decode_vector_int() {
-        assert!(false, "Not implemented");
-
-        let value = macro_decode!("amf3-vector-int.bin");
-        println!("{:?}", value);
+        let expected = Value::IntVector {
+            is_fixed: false,
+            entries: vec![-1, 0, 1],
+        };
+        macro_decode_equal!("amf3-vector-int.bin", expected);
     }
 
     #[test]
     fn decode_vector_uint() {
-        assert!(false, "Not implemented");
-
-        let value = macro_decode!("amf3-vector-uint.bin");
-        println!("{:?}", value);
+        let expected = Value::UintVector {
+            is_fixed: false,
+            entries: vec![0, 1, 2],
+        };
+        macro_decode_equal!("amf3-vector-uint.bin", expected);
     }
 
     #[test]
     fn decode_vector_double() {
-        assert!(false, "Not implemented");
-
-        let value = macro_decode!("amf3-vector-double.bin");
-        println!("{:?}", value);
+        let expected = Value::DoubleVector {
+            is_fixed: false,
+            entries: vec![-1.1_f64, 0_f64, 1.1_f64],
+        };
+        macro_decode_equal!("amf3-vector-double.bin", expected);
     }
 
     #[test]
     fn decode_vector_object() {
-        assert!(false, "Not implemented");
-
-        let value = macro_decode!("amf3-vector-object.bin");
-        println!("{:?}", value);
+        let expected = Value::ObjectVector {
+            name: Some("com.pyyoshi.fooclass".to_string()),
+            is_fixed: false,
+            entries: vec![
+                Value::Object {
+                    name: None,
+                    pairs: vec![
+                        Pair {
+                            key: "index".to_string(),
+                            value: Value::Integer(0),
+                        },
+                        Pair {
+                            key: "msg".to_string(),
+                            value: Value::String("Hello, world!".to_string()),
+                        },
+                    ],
+                },
+                Value::Object {
+                    name: None,
+                    pairs: vec![
+                        Pair {
+                            key: "index".to_string(),
+                            value: Value::Integer(1),
+                        },
+                        Pair {
+                            key: "msg".to_string(),
+                            value: Value::String("こんにちは、世界！".to_string()),
+                        },
+                    ],
+                },
+                Value::Object {
+                    name: None,
+                    pairs: vec![
+                        Pair {
+                            key: "index".to_string(),
+                            value: Value::Integer(2),
+                        },
+                        Pair {
+                            key: "msg".to_string(),
+                            value: Value::String("你好世界".to_string()),
+                        },
+                    ],
+                },
+            ],
+        };
+        macro_decode_equal!("amf3-vector-object.bin", expected);
     }
 
     #[test]
     fn decode_dictionary() {
-        assert!(false, "Not implemented");
-
-        let value = macro_decode!("amf3-dictionary.bin");
-        println!("{:?}", value);
+        let expected = Value::Dictionary {
+            is_weak: false,
+            entries: vec![
+                Pair {
+                    key: Value::String("en".to_string()),
+                    value: Value::String("Hello, world!".to_string()),
+                },
+                Pair {
+                    key: Value::String("ja".to_string()),
+                    value: Value::String("こんにちは、世界！".to_string()),
+                },
+                Pair {
+                    key: Value::String("zh".to_string()),
+                    value: Value::String("你好世界".to_string()),
+                },
+            ],
+        };
+        macro_decode_equal!("amf3-dictionary.bin", expected);
     }
 }
