@@ -15,7 +15,7 @@ mod Marker {
     pub const MOVIECLIP: u8 = 0x04; // reserved
     pub const NULL: u8 = 0x05;
     pub const UNDEFINED: u8 = 0x06;
-    pub const REFERENCE: u8 = 0x07; // not supported
+    pub const REFERENCE: u8 = 0x07;
     pub const ECMA_ARRAY: u8 = 0x08;
     pub const OBJECT_END: u8 = 0x09;
     pub const STRICT_ARRAY: u8 = 0x0A;
@@ -24,7 +24,7 @@ mod Marker {
     pub const UNSUPPORTED: u8 = 0x0D;
     pub const RECORDSET: u8 = 0x0E; // reserved
     pub const XML_DOC: u8 = 0x0F;
-    pub const TYPED_OBJECT: u8 = 0x10; // not supported
+    pub const TYPED_OBJECT: u8 = 0x10;
     pub const AVMPLUS: u8 = 0x11;
 }
 
