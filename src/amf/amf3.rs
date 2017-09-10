@@ -198,57 +198,80 @@ where
     fn decode_object(&mut self) -> DecodeResult<Value> {
         let u29 = try!(self.decode_u29()) as usize;
         let is_reference = (u29 & 0x1) == 0;
-        let value = u29 >> 1;
+
         if is_reference {
-            Err(DecodeError::NotSupportedReferenceTables { index: value })
+            let index = u29 >> 1;
+            self.objects
+                .get(index)
+                .ok_or(DecodeError::NotFoundInReferenceTable { index: index })
+                .and_then(|v| Ok(v.clone()))
         } else {
-            if (value & 0x1) == 0 {
-                Err(DecodeError::NotSupportedReferenceTables { index: value })
-            } else {
-                let class_ref = value >> 0x1;
-                if (class_ref & 0x1) == 0 {
-                    let class_index = class_ref >> 0x1;
-                    Err(DecodeError::NotSupportedReferenceTables {
-                        index: class_index,
-                    })
-                } else {
-                    let class_ext_ref = class_ref >> 0x1;
+            let size = u29 >> 1;
+            if (size & 0x1) == 0 {
+                let index = size >> 0x1;
+                let klass = try!(self.classes.get(index).ok_or(
+                    DecodeError::NotFoundInReferenceTable { index: index },
+                )).clone();
 
-                    let is_externalizable = (class_ext_ref & 0x1) == 1;
-                    let is_dynamic = ((class_ext_ref >> 0x1) & 0x1) == 1;
-
-                    let cdnum = class_ext_ref >> 0x2;
-
-                    let class_name = try!(self.decode_utf8());
-                    let fields: Vec<String> =
-                        try!((0..cdnum).map(|_| self.decode_utf8()).collect());
-
-                    if is_externalizable {
-                        let class_name = try!(self.decode_utf8());
-                        Err(DecodeError::ExternalizableType { name: class_name })
-                    } else {
-                        let mut pairs = try!(
-                            fields
-                                .iter()
-                                .map(|k| {
-                                    Ok(Pair {
-                                        key: k.clone(),
-                                        value: try!(self.decode_value()),
-                                    })
-                                })
-                                .collect::<DecodeResult<Vec<_>>>()
-                        );
-
-                        if is_dynamic {
-                            pairs.extend(try!(self.decode_pairs()));
-                        }
-
-                        Ok(Value::Object {
-                            name: Some(class_name),
-                            pairs: pairs,
+                let mut pairs = try!(
+                    klass
+                        .fields
+                        .iter()
+                        .map(|k| {
+                            Ok(Pair {
+                                key: k.clone(),
+                                value: try!(self.decode_value()),
+                            })
                         })
-                    }
+                        .collect::<DecodeResult<Vec<_>>>()
+                );
+
+                if klass.is_dynamic {
+                    pairs.extend(try!(self.decode_pairs()));
                 }
+                Ok(Value::Object {
+                    name: klass.name,
+                    pairs: pairs,
+                })
+            } else if (size & 0b10) != 0 {
+                let class_name = try!(self.decode_utf8());
+                Err(DecodeError::ExternalizableType { name: class_name })
+            } else {
+                let is_dynamic = (size & 0b100) != 0;
+                let field_num = size >> 3;
+                let class_name = try!(self.decode_utf8());
+                let fields = try!((0..field_num).map(|_| self.decode_utf8()).collect());
+
+                let klass = Class {
+                    name: if class_name.is_empty() {
+                        None
+                    } else {
+                        Some(class_name)
+                    },
+                    is_dynamic: is_dynamic,
+                    fields: fields,
+                };
+                self.classes.push(klass.clone());
+                let mut pairs = try!(
+                    klass
+                        .fields
+                        .iter()
+                        .map(|k| {
+                            Ok(Pair {
+                                key: k.clone(),
+                                value: try!(self.decode_value()),
+                            })
+                        })
+                        .collect::<DecodeResult<Vec<_>>>()
+                );
+                if klass.is_dynamic {
+                    pairs.extend(try!(self.decode_pairs()));
+                }
+                println!("{:?}", self.classes);
+                Ok(Value::Object {
+                    name: klass.name,
+                    pairs: pairs,
+                })
             }
         }
     }
@@ -338,8 +361,8 @@ where
             Marker::XML => self.decode_xml(),
             Marker::ARRAY => self.decode_array(),
             Marker::BYTE_ARRAY => self.decode_byte_array(),
+            Marker::OBJECT => self.decode_object(),
 
-            Marker::OBJECT => Err(DecodeError::NotSupportedType { marker }),
             Marker::VECTOR_INT => Err(DecodeError::NotSupportedType { marker }),
             Marker::VECTOR_UINT => Err(DecodeError::NotSupportedType { marker }),
             Marker::VECTOR_DOUBLE => Err(DecodeError::NotSupportedType { marker }),
@@ -425,10 +448,47 @@ mod test {
 
     #[test]
     fn decode_object() {
-        assert!(false, "Not implemented");
+        let expected = Value::Object {
+            name: Some("com.pyyoshi.nodynamichogeclass".to_string()),
+            pairs: vec![],
+        };
+        macro_decode_equal!("amf3-object.bin", expected);
 
-        let value = macro_decode!("amf3-object.bin");
-        println!("{:?}", value);
+        let expected = Value::Object {
+            name: Some("com.pyyoshi.hogeclass".to_string()),
+            pairs: vec![
+                Pair {
+                    key: "index".to_string(),
+                    value: Value::Integer(0),
+                },
+                Pair {
+                    key: "msg".to_string(),
+                    value: Value::String("fugaaaaaaa".to_string()),
+                },
+            ],
+        };
+        macro_decode_equal!("amf3-object-ref.bin", expected);
+
+        let expected = Value::Object {
+            name: Some("com.pyyoshi.dynamichogeclass".to_string()),
+            pairs: vec![
+                Pair {
+                    key: "index".to_string(),
+                    value: Value::Integer(0),
+                },
+                Pair {
+                    key: "msg".to_string(),
+                    value: Value::String("fugaaaaaaa".to_string()),
+                },
+            ],
+        };
+        macro_decode_equal!("amf3-object-dynamic.bin", expected);
+
+        let expected = Value::Object {
+            name: Some("com.pyyoshi.nodynamichogeclass".to_string()),
+            pairs: vec![],
+        };
+        macro_decode_equal!("amf3-object-typed.bin", expected);
     }
 
     #[test]
