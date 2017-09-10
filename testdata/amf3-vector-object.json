@@ -4,16 +4,16 @@
     "type": 16,
     "value": [
         {
-            "key": "aaaaa",
-            "msg": "Hello, world1!"
+            "index": 0,
+            "msg": "Hello, world!"
         },
         {
-            "key": "bbbbb",
-            "msg": "Hello, world2!"
+            "index": 1,
+            "msg": "こんにちは、世界！"
         },
         {
-            "key": "ccccc",
-            "msg": "Hello, world3!"
+            "index": 2,
+            "msg": "你好世界"
         }
     ],
     "version": 3
