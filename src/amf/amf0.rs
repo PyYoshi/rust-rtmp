@@ -5,6 +5,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 use super::Pair;
 use super::DecodeResult;
 use super::DecodeError;
+use super::amf3;
 
 #[allow(non_snake_case)]
 mod Marker {
@@ -45,6 +46,7 @@ pub enum Value {
     Date { unixtime: time::Duration },
     LongString(String),
     XmlDoc(String),
+    AvmPlus(amf3::Value),
 }
 
 #[derive(Debug)]
@@ -191,6 +193,11 @@ where
             .and_then(|v| Ok(v.clone()))
     }
 
+    fn decode_avmplus(&mut self) -> DecodeResult<Value> {
+        let value = try!(amf3::Decoder::new(&mut self.reader).decode());
+        Ok(Value::AvmPlus(value))
+    }
+
     fn decode_value(&mut self) -> DecodeResult<Value> {
         let marker = try!(self.reader.read_u8());
         match marker {
@@ -205,6 +212,7 @@ where
             Marker::XML_DOC => self.decode_xml_doc(),
             Marker::TYPED_OBJECT => self.decode_typed_object(),
             Marker::REFERENCE => self.decode_reference(),
+            Marker::AVMPLUS => self.decode_avmplus(),
             Marker::NULL => Ok(Value::Null),
             Marker::UNDEFINED => Ok(Value::Undefined),
 
@@ -212,7 +220,6 @@ where
             Marker::UNSUPPORTED => Err(DecodeError::NotSupportedType { marker }),
             Marker::RECORDSET => Err(DecodeError::NotSupportedType { marker }),
             Marker::MOVIECLIP => Err(DecodeError::NotSupportedType { marker }),
-            Marker::AVMPLUS => Err(DecodeError::NotSupportedType { marker }),
 
             _ => Err(DecodeError::UnknownType { marker }),
         }
@@ -230,6 +237,7 @@ mod test {
     use super::Pair;
     use super::DecodeError;
     use super::Decoder;
+    use super::amf3;
 
     macro_rules! macro_decode {
         ($sample_file: expr) => {
@@ -455,10 +463,20 @@ mod test {
 
     #[test]
     fn decode_avmplus() {
-        assert_eq!(
-            macro_decode!("amf0-avmplus.bin"),
-            Err(DecodeError::NotSupportedType { marker: 17 })
-        );
+        let expected = Value::AvmPlus(amf3::Value::Object {
+            name: None,
+            pairs: vec![
+                Pair {
+                    key: "operation".to_string(),
+                    value: amf3::Value::Integer(5),
+                },
+                Pair {
+                    key: "timestamp".to_string(),
+                    value: amf3::Value::Integer(0),
+                },
+            ],
+        });
+        macro_decode_equal!("amf0-avmplus.bin", expected);
     }
 
     #[test]
