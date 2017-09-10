@@ -793,7 +793,7 @@ def gen_amf3_vector_object():
             "msg": "你好世界"
         }
     ])
-    v1.classname = "HogeClass"
+    v1.classname = "com.pyyoshi.fooclass"
 
     enc1 = AMF3Encoder()
     enc1.writeVector(v1)

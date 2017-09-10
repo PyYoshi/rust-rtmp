@@ -1,19 +1,19 @@
 {
-    "classname": "HogeClass",
+    "classname": "com.pyyoshi.fooclass",
     "file": "amf3-vector-object.bin",
     "type": 16,
     "value": [
         {
-            "index": 0,
-            "msg": "Hello, world!"
+            "key": "aaaaa",
+            "msg": "Hello, world1!"
         },
         {
-            "index": 1,
-            "msg": "こんにちは、世界！"
+            "key": "bbbbb",
+            "msg": "Hello, world2!"
         },
         {
-            "index": 2,
-            "msg": "你好世界"
+            "key": "ccccc",
+            "msg": "Hello, world3!"
         }
     ],
     "version": 3
