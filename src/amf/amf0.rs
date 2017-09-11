@@ -1,10 +1,8 @@
 use std::{io, time};
 
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::Pair;
-use super::DecodeResult;
-use super::DecodeError;
+use super::{Pair, DecodeResult, EncodeResult, DecodeError};
 use super::amf3;
 
 #[allow(non_snake_case)]
@@ -42,7 +40,7 @@ pub enum Value {
     Null,
     Undefined,
     EcmaArray { pairs: Vec<Pair<String, Value>> },
-    Array { pairs: Vec<Value> },
+    Array { values: Vec<Value> },
     Date { unixtime: time::Duration },
     LongString(String),
     XmlDoc(String),
@@ -159,7 +157,7 @@ where
     fn decode_strict_array(&mut self) -> DecodeResult<Value> {
         let c = try!(self.reader.read_u32::<BigEndian>()) as usize;
         let pairs = try!((0..c).map(|_| self.decode_value()).collect());
-        let value = Value::Array { pairs: pairs };
+        let value = Value::Array { values: pairs };
 
         let index = self.objects.len();
         self.objects.push(Value::Null); // 空の値を入れておく
@@ -222,6 +220,155 @@ where
             Marker::MOVIECLIP => Err(DecodeError::NotSupportedType { marker }),
 
             _ => Err(DecodeError::UnknownType { marker }),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Encoder<W> {
+    writer: W,
+}
+
+impl<W> Encoder<W>
+where
+    W: io::Write,
+{
+    pub fn new(writer: W) -> Self {
+        Encoder { writer: writer }
+    }
+
+    pub fn encode(&mut self, value: &Value) -> EncodeResult<()> {
+        self.encode_value(value)
+    }
+
+    fn write_string(&mut self, s: &str) -> EncodeResult<()> {
+        assert!(s.len() <= 0xFFFF);
+        try!(self.writer.write_u16::<BigEndian>(s.len() as u16));
+        try!(self.writer.write_all(s.as_bytes()));
+        Ok(())
+    }
+
+    fn write_long_string(&mut self, s: &str) -> EncodeResult<()> {
+        assert!(s.len() <= 0xFFFF_FFFF);
+        try!(self.writer.write_u32::<BigEndian>(s.len() as u32));
+        try!(self.writer.write_all(s.as_bytes()));
+        Ok(())
+    }
+
+    fn encode_pairs(&mut self, pairs: &[Pair<String, Value>]) -> EncodeResult<()> {
+        for pair in pairs {
+            try!(self.write_string(&pair.key));
+            try!(self.encode_value(&pair.value));
+        }
+        try!(self.writer.write_u16::<BigEndian>(0)); // UTF-8-empty => u16
+        try!(self.writer.write_u8(Marker::OBJECT_END));
+        Ok(())
+    }
+
+    fn encode_number(&mut self, number: f64) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::NUMBER));
+        try!(self.writer.write_f64::<BigEndian>(number));
+        Ok(())
+    }
+
+    fn encode_boolean(&mut self, boolean: bool) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::BOOLEAN));
+        try!(self.writer.write_u8(boolean as u8));
+        Ok(())
+    }
+
+    fn encode_string(&mut self, string: &str) -> EncodeResult<()> {
+        if string.len() <= 0xFFFF {
+            try!(self.writer.write_u8(Marker::STRING));
+            try!(self.write_string(&string));
+        } else {
+            try!(self.writer.write_u8(Marker::LONG_STRING));
+            try!(self.write_long_string(&string));
+        }
+        Ok(())
+    }
+
+    fn encode_xml_doc(&mut self, xml_doc: &str) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::XML_DOC));
+        try!(self.write_long_string(&xml_doc));
+        Ok(())
+    }
+
+    fn encode_date(&mut self, unixtime: time::Duration) -> EncodeResult<()> {
+        let ms = unixtime.as_secs() * 1000 + (unixtime.subsec_nanos() as u64) / 1000_000;
+        try!(self.writer.write_u8(Marker::DATE));
+        try!(self.writer.write_f64::<BigEndian>(ms as f64));
+        try!(self.writer.write_i16::<BigEndian>(0));
+        Ok(())
+    }
+
+    // TODO: reference tableのサポート
+    fn encode_object(
+        &mut self,
+        name: &Option<String>,
+        pairs: &[Pair<String, Value>],
+    ) -> EncodeResult<()> {
+        if let Some(name) = name.as_ref() {
+            try!(self.writer.write_u8(Marker::TYPED_OBJECT));
+            try!(self.write_string(name));
+        } else {
+            try!(self.writer.write_u8(Marker::OBJECT));
+        }
+        try!(self.encode_pairs(pairs));
+        Ok(())
+    }
+
+    // TODO: reference tableのサポート
+    fn encode_ecma_array(&mut self, pairs: &[Pair<String, Value>]) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::ECMA_ARRAY));
+        try!(self.writer.write_u32::<BigEndian>(pairs.len() as u32)); // associative-count => u32
+        try!(self.encode_pairs(pairs));
+        Ok(())
+    }
+
+    // TODO: reference tableのサポート
+    fn encode_strict_array(&mut self, values: &[Value]) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::STRICT_ARRAY));
+        try!(self.writer.write_u32::<BigEndian>(values.len() as u32)); // array-count => u32
+        for v in values {
+            try!(self.encode_value(v));
+        }
+        Ok(())
+    }
+
+    fn encode_avmplus(&mut self, value: &amf3::Value) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::AVMPLUS));
+        try!(amf3::Encoder::new(&mut self.writer).encode(value));
+        Ok(())
+    }
+
+    fn encode_null(&mut self) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::NULL));
+        Ok(())
+    }
+
+    fn encode_undefined(&mut self) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::UNDEFINED));
+        Ok(())
+    }
+
+    fn encode_value(&mut self, value: &Value) -> EncodeResult<()> {
+        match *value {
+            Value::Number(number) => self.encode_number(number),
+            Value::Boolean(boolean) => self.encode_boolean(boolean),
+            Value::String(ref string) => self.encode_string(string),
+            Value::Object {
+                ref name,
+                ref pairs,
+            } => self.encode_object(name, pairs),
+            Value::EcmaArray { ref pairs } => self.encode_ecma_array(pairs),
+            Value::Array { ref values } => self.encode_strict_array(values),
+            Value::Date { unixtime } => self.encode_date(unixtime),
+            Value::LongString(ref string) => self.encode_string(string),
+            Value::XmlDoc(ref xml_doc) => self.encode_xml_doc(xml_doc),
+            Value::AvmPlus(ref value) => self.encode_avmplus(value),
+            Value::Null => self.encode_null(),
+            Value::Undefined => self.encode_undefined(),
         }
     }
 }
@@ -361,7 +508,7 @@ mod test {
     #[test]
     fn decode_strict_array() {
         let expected = Value::Array {
-            pairs: vec![
+            values: vec![
                 Value::Number(1.1),
                 Value::Number(2_f64),
                 Value::Number(3.3),
@@ -404,7 +551,7 @@ mod test {
     #[test]
     fn decode_reference() {
         let expected1 = Value::Array {
-            pairs: vec![
+            values: vec![
                 Value::Number(1_f64),
                 Value::Number(2_f64),
                 Value::Number(3_f64),
@@ -413,7 +560,7 @@ mod test {
         macro_decode_equal!("amf0-reference-array-number.bin", expected1);
 
         let expected2 = Value::Array {
-            pairs: vec![
+            values: vec![
                 Value::String("foo".to_string()),
                 Value::String("baz".to_string()),
                 Value::String("bar".to_string()),
