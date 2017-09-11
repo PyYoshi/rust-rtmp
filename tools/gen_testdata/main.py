@@ -411,6 +411,18 @@ def gen_amf0_avmplus():
     )
     write_json(OUTPUT_DIR, result1)
 
+    v2 = [1.1, 2, 3.3, "こんにちは、世界！"]
+    enc2 = AMF0Encoder()
+    enc2.writeAMF3(v2)
+    result2 = build_result(
+        "amf0-avmplus-array",
+        AMF0,
+        amf0.TYPE_AMF3,
+        v2,
+        enc2.stream.getvalue()
+    )
+    write_json(OUTPUT_DIR, result2)
+
 ##############################
 #            AMF3            #
 ##############################
