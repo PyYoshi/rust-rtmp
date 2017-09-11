@@ -711,7 +711,7 @@ where
     ) -> EncodeResult<()> {
         try!(self.writer.write_u8(Marker::OBJECT));
 
-        let is_reference = false as usize;
+        let is_reference = 1 as usize;
         let is_externalizable = false as usize;
         let is_dynamic = (sealed_count < pairs.len()) as usize;
         let u29 = (sealed_count << 3) | (is_dynamic << 2) | (is_externalizable << 1) | is_reference;
@@ -796,7 +796,7 @@ where
     }
 
     // TODO: reference tableのサポート
-    fn encode_object_vector(
+    fn encode_vector_object(
         &mut self,
         name: &Option<String>,
         is_fixed: bool,
@@ -877,7 +877,7 @@ where
                 ref name,
                 is_fixed,
                 ref entries,
-            } => self.encode_object_vector(name, is_fixed, entries),
+            } => self.encode_vector_object(name, is_fixed, entries),
             Value::Dictionary {
                 is_weak,
                 ref entries,
@@ -1020,6 +1020,22 @@ mod test {
             pairs: vec![],
         };
         macro_decode_equal!("amf3-object-typed.bin", expected);
+
+        let expected = Value::Object {
+            name: None,
+            sealed_count: 2,
+            pairs: vec![
+                Pair {
+                    key: "index".to_string(),
+                    value: Value::Integer(0),
+                },
+                Pair {
+                    key: "msg".to_string(),
+                    value: Value::String("fugaaaaaaa".to_string()),
+                },
+            ],
+        };
+        macro_decode_equal!("amf3-object-hash.bin", expected);
     }
 
     #[test]
@@ -1230,15 +1246,8 @@ mod test {
     #[test]
     fn encode_object() {
         let value = Value::Object {
-            name: Some("com.pyyoshi.nodynamichogeclass".to_string()),
+            name: None,
             sealed_count: 0,
-            pairs: vec![],
-        };
-        macro_encode_equal!(value, "amf3-object.bin");
-
-        let value = Value::Object {
-            name: Some("com.pyyoshi.hogeclass".to_string()),
-            sealed_count: 2,
             pairs: vec![
                 Pair {
                     key: "index".to_string(),
@@ -1250,23 +1259,7 @@ mod test {
                 },
             ],
         };
-        macro_encode_equal!(value, "amf3-object-ref.bin");
-
-        let value = Value::Object {
-            name: Some("com.pyyoshi.dynamichogeclass".to_string()),
-            sealed_count: 2,
-            pairs: vec![
-                Pair {
-                    key: "index".to_string(),
-                    value: Value::Integer(0),
-                },
-                Pair {
-                    key: "msg".to_string(),
-                    value: Value::String("fugaaaaaaa".to_string()),
-                },
-            ],
-        };
-        macro_encode_equal!(value, "amf3-object-dynamic.bin");
+        macro_encode_equal!(value, "amf3-object-hash.bin");
 
         let value = Value::Object {
             name: Some("com.pyyoshi.nodynamichogeclass".to_string()),
