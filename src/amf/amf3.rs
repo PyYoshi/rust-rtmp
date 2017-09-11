@@ -574,8 +574,7 @@ where
     }
 
     pub fn encode(&mut self, value: &Value) -> EncodeResult<()> {
-        self.encode_value(value);
-        Ok(())
+        self.encode_value(value)
     }
 
     // 1.3.1 Variable Length Unsigned 29-bit Integer Encoding
@@ -896,6 +895,7 @@ mod test {
     use super::Value;
     use super::Decoder;
     use super::Pair;
+    use super::Encoder;
 
     macro_rules! macro_decode {
         ($sample_file: expr) => {
@@ -915,6 +915,20 @@ mod test {
             {
                 let value = macro_decode!($sample_file).unwrap();
                 assert_eq!(value, $expected)
+            }
+        }
+    }
+
+    macro_rules! macro_encode_equal {
+        ($value:expr, $file:expr) => {
+            {
+                let expected = include_bytes!(concat!("../../testdata/", $file));
+                let mut buf = Vec::new();
+                let _ = Encoder::new(&mut buf).encode(& $value);
+                // println!("==== {:?} ====", $file);
+                // println!("value:    {:?}", buf);
+                // println!("expected: {:?}", expected);
+                assert_eq!(buf, &expected[..])
             }
         }
     }
@@ -963,12 +977,14 @@ mod test {
     fn decode_object() {
         let expected = Value::Object {
             name: Some("com.pyyoshi.nodynamichogeclass".to_string()),
+            sealed_count: 0,
             pairs: vec![],
         };
         macro_decode_equal!("amf3-object.bin", expected);
 
         let expected = Value::Object {
             name: Some("com.pyyoshi.hogeclass".to_string()),
+            sealed_count: 2,
             pairs: vec![
                 Pair {
                     key: "index".to_string(),
@@ -984,6 +1000,7 @@ mod test {
 
         let expected = Value::Object {
             name: Some("com.pyyoshi.dynamichogeclass".to_string()),
+            sealed_count: 2,
             pairs: vec![
                 Pair {
                     key: "index".to_string(),
@@ -999,6 +1016,7 @@ mod test {
 
         let expected = Value::Object {
             name: Some("com.pyyoshi.nodynamichogeclass".to_string()),
+            sealed_count: 0,
             pairs: vec![],
         };
         macro_decode_equal!("amf3-object-typed.bin", expected);
@@ -1102,6 +1120,7 @@ mod test {
             entries: vec![
                 Value::Object {
                     name: None,
+                    sealed_count: 2,
                     pairs: vec![
                         Pair {
                             key: "index".to_string(),
@@ -1115,6 +1134,7 @@ mod test {
                 },
                 Value::Object {
                     name: None,
+                    sealed_count: 2,
                     pairs: vec![
                         Pair {
                             key: "index".to_string(),
@@ -1128,6 +1148,7 @@ mod test {
                 },
                 Value::Object {
                     name: None,
+                    sealed_count: 2,
                     pairs: vec![
                         Pair {
                             key: "index".to_string(),
@@ -1164,5 +1185,259 @@ mod test {
             ],
         };
         macro_decode_equal!("amf3-dictionary.bin", expected);
+    }
+
+    #[test]
+    fn encode_integer() {
+        macro_encode_equal!(Value::Integer(0), "amf3-integer-0.bin");
+        macro_encode_equal!(Value::Integer(128), "amf3-integer-128.bin");
+        macro_encode_equal!(Value::Integer(16384), "amf3-integer-16384.bin");
+        macro_encode_equal!(Value::Integer(268435455), "amf3-integer-max-u29.bin");
+        macro_encode_equal!(Value::Integer(-268435456), "amf3-integer-min-u29.bin");
+    }
+
+    #[test]
+    fn encode_double() {
+        macro_encode_equal!(Value::Double(268435456_f64), "amf3-double-max-u29.bin");
+        macro_encode_equal!(Value::Double(-268435457_f64), "amf3-double-min-u29.bin");
+        macro_encode_equal!(Value::Double(3.14_f64), "amf3-double-pi.bin");
+    }
+
+    #[test]
+    fn encode_string() {
+        macro_encode_equal!(
+            Value::String("こんにちは、世界！".to_string()),
+            "amf3-string.bin"
+        );
+    }
+
+    #[test]
+    fn encode_xml_doc() {
+        macro_encode_equal!(
+            Value::XmlDoc("<a><b>hello world</b></a>".to_string()),
+            "amf3-xml-doc.bin"
+        );
+    }
+
+    #[test]
+    fn encode_date() {
+        macro_encode_equal!(
+            Value::Date { unixtime: time::Duration::from_millis(1111111111_000) },
+            "amf3-date.bin"
+        );
+    }
+
+    #[test]
+    fn encode_object() {
+        let value = Value::Object {
+            name: Some("com.pyyoshi.nodynamichogeclass".to_string()),
+            sealed_count: 0,
+            pairs: vec![],
+        };
+        macro_encode_equal!(value, "amf3-object.bin");
+
+        let value = Value::Object {
+            name: Some("com.pyyoshi.hogeclass".to_string()),
+            sealed_count: 2,
+            pairs: vec![
+                Pair {
+                    key: "index".to_string(),
+                    value: Value::Integer(0),
+                },
+                Pair {
+                    key: "msg".to_string(),
+                    value: Value::String("fugaaaaaaa".to_string()),
+                },
+            ],
+        };
+        macro_encode_equal!(value, "amf3-object-ref.bin");
+
+        let value = Value::Object {
+            name: Some("com.pyyoshi.dynamichogeclass".to_string()),
+            sealed_count: 2,
+            pairs: vec![
+                Pair {
+                    key: "index".to_string(),
+                    value: Value::Integer(0),
+                },
+                Pair {
+                    key: "msg".to_string(),
+                    value: Value::String("fugaaaaaaa".to_string()),
+                },
+            ],
+        };
+        macro_encode_equal!(value, "amf3-object-dynamic.bin");
+
+        let value = Value::Object {
+            name: Some("com.pyyoshi.nodynamichogeclass".to_string()),
+            sealed_count: 0,
+            pairs: vec![],
+        };
+        macro_encode_equal!(value, "amf3-object-typed.bin");
+    }
+
+    #[test]
+    fn encode_xml() {
+        macro_encode_equal!(
+            Value::Xml("<a><b>hello world</b></a>".to_string()),
+            "amf3-xml.bin"
+        );
+    }
+
+    #[test]
+    fn encode_undefined() {
+        macro_encode_equal!(Value::Undefined, "amf3-undefined.bin");
+    }
+
+    #[test]
+    fn encode_null() {
+        macro_encode_equal!(Value::Null, "amf3-null.bin");
+    }
+
+    #[test]
+    fn encode_boolean() {
+        macro_encode_equal!(Value::Boolean(false), "amf3-boolean-false.bin");
+        macro_encode_equal!(Value::Boolean(true), "amf3-boolean-true.bin");
+    }
+
+    #[test]
+    fn encode_array() {
+        let value = Value::Array {
+            assoc_entries: vec![
+                Pair {
+                    key: "en".to_string(),
+                    value: Value::String("Hello, world!".to_string()),
+                },
+                Pair {
+                    key: "ja".to_string(),
+                    value: Value::String("こんにちは、世界！".to_string()),
+                },
+                Pair {
+                    key: "zh".to_string(),
+                    value: Value::String("你好世界".to_string()),
+                },
+            ],
+            dense_entries: vec![],
+        };
+        macro_encode_equal!(value, "amf3-array-assoc.bin");
+
+        let value = Value::Array {
+            assoc_entries: vec![],
+            dense_entries: vec![
+                Value::Double(1.1_f64),
+                Value::Integer(2_i32),
+                Value::Double(3.3_f64),
+                Value::String("こんにちは、世界！".to_string()),
+            ],
+        };
+        macro_encode_equal!(value, "amf3-array-dense.bin");
+    }
+
+    #[test]
+    fn encode_byte_array() {
+        let value = Value::ByteArray("hello".as_bytes().iter().cloned().collect());
+        macro_encode_equal!(value, "amf3-byte-array.bin");
+    }
+
+    #[test]
+    fn encode_vector_int() {
+        let value = Value::IntVector {
+            is_fixed: false,
+            entries: vec![-1, 0, 1],
+        };
+        macro_encode_equal!(value, "amf3-vector-int.bin");
+    }
+
+    #[test]
+    fn encode_vector_uint() {
+        let value = Value::UintVector {
+            is_fixed: false,
+            entries: vec![0, 1, 2],
+        };
+        macro_encode_equal!(value, "amf3-vector-uint.bin");
+    }
+
+    #[test]
+    fn encode_vector_double() {
+        let value = Value::DoubleVector {
+            is_fixed: false,
+            entries: vec![-1.1_f64, 0_f64, 1.1_f64],
+        };
+        macro_encode_equal!(value, "amf3-vector-double.bin");
+    }
+
+    #[test]
+    fn encode_vector_object() {
+        let value = Value::ObjectVector {
+            name: Some("com.pyyoshi.fooclass".to_string()),
+            is_fixed: false,
+            entries: vec![
+                Value::Object {
+                    name: None,
+                    sealed_count: 2,
+                    pairs: vec![
+                        Pair {
+                            key: "index".to_string(),
+                            value: Value::Integer(0),
+                        },
+                        Pair {
+                            key: "msg".to_string(),
+                            value: Value::String("Hello, world!".to_string()),
+                        },
+                    ],
+                },
+                Value::Object {
+                    name: None,
+                    sealed_count: 2,
+                    pairs: vec![
+                        Pair {
+                            key: "index".to_string(),
+                            value: Value::Integer(1),
+                        },
+                        Pair {
+                            key: "msg".to_string(),
+                            value: Value::String("こんにちは、世界！".to_string()),
+                        },
+                    ],
+                },
+                Value::Object {
+                    name: None,
+                    sealed_count: 2,
+                    pairs: vec![
+                        Pair {
+                            key: "index".to_string(),
+                            value: Value::Integer(2),
+                        },
+                        Pair {
+                            key: "msg".to_string(),
+                            value: Value::String("你好世界".to_string()),
+                        },
+                    ],
+                },
+            ],
+        };
+        macro_encode_equal!(value, "amf3-vector-object.bin");
+    }
+
+    #[test]
+    fn encode_dictionary() {
+        let value = Value::Dictionary {
+            is_weak: false,
+            entries: vec![
+                Pair {
+                    key: Value::String("en".to_string()),
+                    value: Value::String("Hello, world!".to_string()),
+                },
+                Pair {
+                    key: Value::String("ja".to_string()),
+                    value: Value::String("こんにちは、世界！".to_string()),
+                },
+                Pair {
+                    key: Value::String("zh".to_string()),
+                    value: Value::String("你好世界".to_string()),
+                },
+            ],
+        };
+        macro_encode_equal!(value, "amf3-dictionary.bin");
     }
 }
