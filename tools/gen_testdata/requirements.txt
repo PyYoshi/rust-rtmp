@@ -1,2 +1,2 @@
--e git://github.com/PyYoshi/Py3AMF.git@850d4d2c79187e119ddf1c8c422abcb5da772156#egg=Py3AMF
+-e git://github.com/PyYoshi/Py3AMF.git@13942a3fe18e45e500b195714d8c50cff42ba144#egg=Py3AMF
 simplejson==3.11.1
