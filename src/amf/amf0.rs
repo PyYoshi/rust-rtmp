@@ -385,6 +385,7 @@ mod test {
     use super::DecodeError;
     use super::Decoder;
     use super::amf3;
+    use super::Encoder;
 
     macro_rules! macro_decode {
         ($sample_file: expr) => {
@@ -404,6 +405,20 @@ mod test {
             {
                 let value = macro_decode!($sample_file).unwrap();
                 assert_eq!(value, $expected)
+            }
+        }
+    }
+
+    macro_rules! macro_encode_equal {
+        ($value:expr, $file:expr) => {
+            {
+                let expected = include_bytes!(concat!("../../testdata/", $file));
+                let mut buf = Vec::new();
+                let _ = Encoder::new(&mut buf).encode(& $value);
+                // println!("==== {:?} ====", $file);
+                // println!("value:    {:?}", buf);
+                // println!("expected: {:?}", expected);
+                assert_eq!(buf, &expected[..])
             }
         }
     }
@@ -612,6 +627,7 @@ mod test {
     fn decode_avmplus() {
         let expected = Value::AvmPlus(amf3::Value::Object {
             name: None,
+            sealed_count: 2,
             pairs: vec![
                 Pair {
                     key: "operation".to_string(),
@@ -632,5 +648,154 @@ mod test {
             macro_decode!("amf0-object-end.bin"),
             Err(DecodeError::NotExpectedObjectEnd)
         );
+    }
+
+    #[test]
+    fn encode_number() {
+        macro_encode_equal!(Value::Number(1234.5), "amf0-number.bin");
+        macro_encode_equal!(
+            Value::Number(f64::NEG_INFINITY),
+            "amf0-number-negative-infinity.bin"
+        );
+        macro_encode_equal!(
+            Value::Number(f64::INFINITY),
+            "amf0-number-positive-infinity.bin"
+        );
+    }
+
+    #[test]
+    fn encode_boolean() {
+        macro_encode_equal!(Value::Boolean(false), "amf0-boolean-false.bin");
+        macro_encode_equal!(Value::Boolean(true), "amf0-boolean-true.bin");
+    }
+
+    #[test]
+    fn encode_string() {
+        macro_encode_equal!(
+            Value::String("Hello, world!".to_string()),
+            "amf0-string.bin"
+        );
+    }
+
+    #[test]
+    fn encode_long_string() {
+        let gen = "うひょおおおおおおおおおおおおおおおおおおおおおおおおおおおおおお".to_string().repeat(2000);
+        macro_encode_equal!(Value::LongString(gen), "amf0-long-string.bin");
+    }
+
+    #[test]
+    fn encode_xml_doc() {
+        macro_encode_equal!(
+            Value::XmlDoc("<a><b>hello world</b></a>".to_string()),
+            "amf0-xml-doc.bin"
+        );
+    }
+
+    #[test]
+    fn encode_date() {
+        macro_encode_equal!(
+            Value::Date { unixtime: time::Duration::from_millis(1111111111_000) },
+            "amf0-date.bin"
+        );
+    }
+
+    #[test]
+    fn encode_object() {
+        let value = Value::Object {
+            name: None,
+            pairs: vec![
+                Pair {
+                    key: "msg".to_string(),
+                    value: Value::String("Hello, world! こんにちは、世界！".to_string()),
+                },
+                Pair {
+                    key: "index".to_string(),
+                    value: Value::Number(0_f64),
+                },
+            ],
+        };
+        macro_encode_equal!(value, "amf0-object.bin");
+    }
+
+    #[test]
+    fn encode_ecma_array() {
+        let value = Value::EcmaArray {
+            pairs: vec![
+                Pair {
+                    key: "en".to_string(),
+                    value: Value::String("Hello, world!".to_string()),
+                },
+                Pair {
+                    key: "ja".to_string(),
+                    value: Value::String("こんにちは、世界！".to_string()),
+                },
+                Pair {
+                    key: "zh".to_string(),
+                    value: Value::String("你好世界".to_string()),
+                },
+            ],
+        };
+        macro_encode_equal!(value, "amf0-ecma-array.bin");
+    }
+
+    #[test]
+    fn encode_strict_array() {
+        let value = Value::Array {
+            values: vec![
+                Value::Number(1.1),
+                Value::Number(2_f64),
+                Value::Number(3.3),
+                Value::String("こんにちは、世界！".to_string()),
+            ],
+        };
+        macro_encode_equal!(value, "amf0-strict-array.bin");
+    }
+
+    #[test]
+    fn encode_typed_object() {
+        let value = Value::Object {
+            name: Some("com.pyyoshi.hogeclass".to_string()),
+            pairs: vec![
+                Pair {
+                    key: "index".to_string(),
+                    value: Value::Number(0_f64),
+                },
+                Pair {
+                    key: "msg".to_string(),
+                    value: Value::String("fugaaaaaaa".to_string()),
+                },
+            ],
+        };
+        macro_encode_equal!(value, "amf0-typed-object.bin");
+    }
+
+    #[test]
+    fn encode_null() {
+        macro_encode_equal!(Value::Null, "amf0-null.bin");
+    }
+
+    #[test]
+    fn encode_undefined() {
+        macro_encode_equal!(Value::Undefined, "amf0-undefined.bin");
+    }
+
+    #[test]
+    fn encode_avmplus() {
+        let value = Value::AvmPlus(amf3::Value::Object {
+            name: None,
+            sealed_count: 2,
+            pairs: vec![
+                Pair {
+                    key: "operation".to_string(),
+                    value: amf3::Value::Integer(5),
+                },
+                Pair {
+                    key: "timestamp".to_string(),
+                    value: amf3::Value::Integer(0),
+                },
+            ],
+        });
+        macro_encode_equal!(value, "amf0-avmplus.bin");
+
     }
 }
