@@ -1,8 +1,11 @@
 use std::{io, time};
 
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::{Pair, DecodeResult, DecodeError};
+use super::{Pair, DecodeResult, DecodeError, EncodeResult, EncodeError};
+
+pub const MAX_29B_INT: i32 = 0x0FFF_FFFF;
+pub const MIN_29B_INT: i32 = -0x1000_0000;
 
 #[allow(non_snake_case)]
 pub mod Marker {
@@ -38,6 +41,7 @@ pub enum Value {
     Date { unixtime: time::Duration },
     Object {
         name: Option<String>,
+        sealed_count: usize,
         pairs: Vec<Pair<String, Value>>,
     },
     Xml(String),
@@ -270,6 +274,7 @@ where
                 }
                 Ok(Value::Object {
                     name: klass.name,
+                    sealed_count: pairs.len(),
                     pairs: pairs,
                 })
             } else if (size & 0b10) != 0 {
@@ -308,6 +313,7 @@ where
                 }
                 Ok(Value::Object {
                     name: klass.name,
+                    sealed_count: pairs.len(),
                     pairs: pairs,
                 })
             }
@@ -550,6 +556,333 @@ where
             Marker::DICTIONARY => self.decode_dictionary(),
 
             _ => Err(DecodeError::UnknownType { marker }),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Encoder<W> {
+    writer: W,
+}
+
+impl<W> Encoder<W>
+where
+    W: io::Write,
+{
+    pub fn new(writer: W) -> Self {
+        Encoder { writer: writer }
+    }
+
+    pub fn encode(&mut self, value: &Value) -> EncodeResult<()> {
+        self.encode_value(value);
+        Ok(())
+    }
+
+    // 1.3.1 Variable Length Unsigned 29-bit Integer Encoding
+    // AMF 3 makes use of a special compact format for writing integers to reduce the number of bytes required for encoding. As with a normal 32-bit integer, up to 4 bytes are required to hold the value however the high bit of the first 3 bytes are used as flags to determine whether the next byte is part of the integer. With up to 3 bits of the 32 bits being used as flags, only 29 significant bits remain for encoding an integer. This means the largest unsigned integer value that can be represented is 229 - 1.
+    // (hex)
+    // 0x00000000 - 0x0000007F
+    // 0x00000080 - 0x00003FFF
+    // 0x00004000 - 0x001FFFFF
+    // 0x00200000 - 0x3FFFFFFF
+    // 0x40000000 - 0xFFFFFFFF
+    // : (binary)
+    // :  0xxxxxxx
+    // :  1xxxxxxx 0xxxxxxx
+    // :  1xxxxxxx 1xxxxxxx 0xxxxxxx
+    // :  1xxxxxxx 1xxxxxxx 1xxxxxxx xxxxxxxx
+    // :  throw range exception
+    // In ABNF syntax, the variable length unsigned 29-bit integer type is described as follows:
+    // U29 = U29-1 | U29-2 | U29-3 | U29-4
+    // U29-1 = %x00-7F
+    // U29-2 = %x80-FF %x00-7F
+    // U29-3 = %x80-FF %x80-FF %x00-7F
+    // U29-4 = %x80-FF %x80-FF %x80-FF %x00-FF
+    fn encode_u29(&mut self, u29: u32) -> EncodeResult<()> {
+        if u29 < 0x80 {
+            // U29-1
+            try!(self.writer.write_u8(u29 as u8));
+        } else if u29 < 0x4000 {
+            // U29-2
+            let b1 = (u29 >> 7 | 0x80) as u8;
+            let b2 = (u29 & 0x7F) as u8;
+            for b in &[b1, b2] {
+                try!(self.writer.write_u8(*b));
+            }
+        } else if u29 > 0x3FFF && u29 <= 0x1FFFFF {
+            // U29-3
+            let b1 = (u29 >> 14 | 0x80) as u8;
+            let b2 = (((u29 >> 7) & 0x7F) | 0x80) as u8;
+            let b3 = (u29 & 0x7F) as u8;
+            for b in &[b1, b2, b3] {
+                try!(self.writer.write_u8(*b));
+            }
+        } else if u29 < 0x4000_0000 {
+            // U29-4
+            let b1 = (u29 >> 22 | 0x80) as u8;
+            let b2 = (((u29 >> 15) & 0x7F) | 0x80) as u8;
+            let b3 = (((u29 >> 8) & 0x7F) | 0x80) as u8;
+            let b4 = (u29 & 0xFF) as u8;
+            for b in &[b1, b2, b3, b4] {
+                try!(self.writer.write_u8(*b));
+            }
+        } else {
+            return Err(EncodeError::U29Overflow { u29 });
+        }
+        Ok(())
+    }
+
+    // TODO: reference tableのサポート
+    fn encode_utf8(&mut self, s: &str) -> EncodeResult<()> {
+        let size = ((s.len() << 1) | 0x01) as u32;
+        try!(self.encode_u29(size));
+
+        try!(self.writer.write_all(s.as_bytes()));
+        Ok(())
+    }
+
+    fn encode_pairs(&mut self, pairs: &[Pair<String, Value>]) -> EncodeResult<()> {
+        for pair in pairs {
+            try!(self.encode_utf8(&pair.key));
+            try!(self.encode(&pair.value));
+        }
+        try!(self.encode_utf8("")); // UTF-8-empty
+        Ok(())
+    }
+
+    fn encode_boolean(&mut self, boolean: bool) -> EncodeResult<()> {
+        if boolean {
+            try!(self.writer.write_u8(Marker::TRUE));
+        } else {
+            try!(self.writer.write_u8(Marker::FALSE));
+        }
+        Ok(())
+    }
+
+    fn encode_integer(&mut self, integer: i32) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::INTEGER));
+        let u29 = if integer >= 0 {
+            integer as u32
+        } else {
+            ((1 << 29) + integer) as u32
+        };
+        try!(self.encode_u29(u29));
+        Ok(())
+    }
+
+    fn encode_double(&mut self, double: f64) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::DOUBLE));
+        try!(self.writer.write_f64::<BigEndian>(double));
+        Ok(())
+    }
+
+    fn encode_string(&mut self, string: &str) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::STRING));
+        try!(self.encode_utf8(string));
+        Ok(())
+    }
+
+    fn encode_xml_document(&mut self, xml_doc: &str) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::XML_DOC));
+        try!(self.encode_utf8(xml_doc));
+        Ok(())
+    }
+
+    fn encode_date(&mut self, unixtime: time::Duration) -> EncodeResult<()> {
+        let ms = unixtime.as_secs() * 1000 + (unixtime.subsec_nanos() as u64) / 1000_000;
+        try!(self.writer.write_u8(Marker::DATE));
+        let size = ((0 << 1) | 0x01) as u32;
+        try!(self.encode_u29(size));
+        try!(self.writer.write_f64::<BigEndian>(ms as f64));
+        Ok(())
+    }
+
+    fn encode_xml(&mut self, xml: &str) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::XML));
+        try!(self.encode_utf8(xml));
+        Ok(())
+    }
+
+    // TODO: reference tableのサポート
+    fn encode_object(
+        &mut self,
+        name: &Option<String>,
+        sealed_count: usize,
+        pairs: &[Pair<String, Value>],
+    ) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::OBJECT));
+
+        let is_reference = false as usize;
+        let is_externalizable = false as usize;
+        let is_dynamic = (sealed_count < pairs.len()) as usize;
+        let u29 = (sealed_count << 3) | (is_dynamic << 2) | (is_externalizable << 1) | is_reference;
+        let size = ((u29 << 1) | 0x01) as u32;
+        try!(self.encode_u29(size));
+
+        let name = name.as_ref().map_or("", |s| &s);
+        try!(self.encode_utf8(name));
+        for pair in pairs.iter().take(sealed_count) {
+            try!(self.encode_utf8(&pair.key));
+        }
+
+        for pair in pairs.iter().take(sealed_count) {
+            try!(self.encode(&pair.value));
+        }
+
+        if pairs.len() > sealed_count {
+            try!(self.encode_pairs(&pairs[sealed_count..]));
+        }
+
+        Ok(())
+    }
+
+    // TODO: reference tableのサポート
+    fn encode_array(&mut self, assoc: &[Pair<String, Value>], dense: &[Value]) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::ARRAY));
+        let size = ((dense.len() << 1) | 0x01) as u32;
+        try!(self.encode_u29(size));
+        try!(self.encode_pairs(assoc));
+        try!(
+            dense
+                .iter()
+                .map(|v| self.encode(v))
+                .collect::<EncodeResult<Vec<_>>>()
+        );
+        Ok(())
+    }
+
+    // TODO: reference tableのサポート
+    fn encode_byte_array(&mut self, bytes: &[u8]) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::BYTE_ARRAY));
+        let size = ((bytes.len() << 1) | 0x01) as u32;
+        try!(self.encode_u29(size));
+        try!(self.writer.write_all(bytes));
+        Ok(())
+    }
+
+    // TODO: reference tableのサポート
+    fn encode_vector_int(&mut self, is_fixed: bool, vec: &[i32]) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::VECTOR_INT));
+        let size = ((vec.len() << 1) | 0x01) as u32;
+        try!(self.encode_u29(size));
+        try!(self.writer.write_u8(is_fixed as u8));
+        for &v in vec {
+            try!(self.writer.write_i32::<BigEndian>(v));
+        }
+        Ok(())
+    }
+
+    // TODO: reference tableのサポート
+    fn encode_vector_uint(&mut self, is_fixed: bool, vec: &[u32]) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::VECTOR_UINT));
+        let size = ((vec.len() << 1) | 0x01) as u32;
+        try!(self.encode_u29(size));
+        try!(self.writer.write_u8(is_fixed as u8));
+        for &v in vec {
+            try!(self.writer.write_u32::<BigEndian>(v));
+        }
+        Ok(())
+    }
+
+    // TODO: reference tableのサポート
+    fn encode_vector_double(&mut self, is_fixed: bool, vec: &[f64]) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::VECTOR_DOUBLE));
+        let size = ((vec.len() << 1) | 0x01) as u32;
+        try!(self.encode_u29(size));
+        try!(self.writer.write_u8(is_fixed as u8));
+        for &v in vec {
+            try!(self.writer.write_f64::<BigEndian>(v));
+        }
+        Ok(())
+    }
+
+    // TODO: reference tableのサポート
+    fn encode_object_vector(
+        &mut self,
+        name: &Option<String>,
+        is_fixed: bool,
+        vec: &[Value],
+    ) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::VECTOR_OBJECT));
+        let size = ((vec.len() << 1) | 0x01) as u32;
+        try!(self.encode_u29(size));
+        try!(self.writer.write_u8(is_fixed as u8));
+        try!(self.encode_utf8(name.as_ref().map_or("*", |s| &s)));
+        for v in vec {
+            try!(self.encode(v));
+        }
+        Ok(())
+    }
+
+    // TODO: reference tableのサポート
+    fn encode_dictionary(
+        &mut self,
+        is_weak: bool,
+        pairs: &[Pair<Value, Value>],
+    ) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::DICTIONARY));
+        let size = ((pairs.len() << 1) | 0x01) as u32;
+        try!(self.encode_u29(size));
+        try!(self.writer.write_u8(is_weak as u8));
+        for pair in pairs {
+            try!(self.encode(&pair.key));
+            try!(self.encode(&pair.value));
+        }
+        Ok(())
+    }
+
+    fn encode_undefined(&mut self) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::UNDEFINED));
+        Ok(())
+    }
+
+    fn encode_null(&mut self) -> EncodeResult<()> {
+        try!(self.writer.write_u8(Marker::NULL));
+        Ok(())
+    }
+
+    fn encode_value(&mut self, value: &Value) -> EncodeResult<()> {
+        match *value {
+            Value::Undefined => self.encode_undefined(),
+            Value::Null => self.encode_null(),
+            Value::Boolean(boolean) => self.encode_boolean(boolean),
+            Value::Integer(integer) => self.encode_integer(integer),
+            Value::Double(double) => self.encode_double(double),
+            Value::String(ref string) => self.encode_string(string),
+            Value::XmlDoc(ref xml_doc) => self.encode_xml_document(xml_doc),
+            Value::Date { unixtime } => self.encode_date(unixtime),
+            Value::Object {
+                ref name,
+                sealed_count,
+                ref pairs,
+            } => self.encode_object(name, sealed_count, pairs),
+            Value::Xml(ref xml) => self.encode_xml(xml),
+            Value::Array {
+                ref assoc_entries,
+                ref dense_entries,
+            } => self.encode_array(assoc_entries, dense_entries),
+            Value::ByteArray(ref bytes) => self.encode_byte_array(bytes),
+            Value::IntVector {
+                is_fixed,
+                ref entries,
+            } => self.encode_vector_int(is_fixed, entries),
+            Value::UintVector {
+                is_fixed,
+                ref entries,
+            } => self.encode_vector_uint(is_fixed, entries),
+            Value::DoubleVector {
+                is_fixed,
+                ref entries,
+            } => self.encode_vector_double(is_fixed, entries),
+            Value::ObjectVector {
+                ref name,
+                is_fixed,
+                ref entries,
+            } => self.encode_object_vector(name, is_fixed, entries),
+            Value::Dictionary {
+                is_weak,
+                ref entries,
+            } => self.encode_dictionary(is_weak, entries),
         }
     }
 }
