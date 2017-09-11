@@ -1,8 +1,8 @@
 use std::{error, fmt, io, string};
 
 pub enum Version {
-    AMF0,
-    AMF3,
+    AMF0 = 0x0,
+    AMF3 = 0x3,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -106,6 +106,71 @@ impl From<string::FromUtf8Error> for DecodeError {
 }
 
 pub type DecodeResult<T> = Result<T, DecodeError>;
+
+#[derive(Debug)]
+pub enum EncodeError {
+    Io(io::Error),
+    String(string::FromUtf8Error),
+    NotSupportedType { marker: u8 },
+    U29Overflow { u29: u32 },
+}
+
+impl fmt::Display for EncodeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            EncodeError::Io(ref x) => write!(f, "I/O Error: {}", x),
+            EncodeError::String(ref x) => write!(f, "Invalid String: {}", x),
+            EncodeError::NotSupportedType { marker } => {
+                write!(f, "Not supported type: marker={}", marker)
+            }
+            EncodeError::U29Overflow { u29 } => write!(f, "Too large number: u29={}", u29),
+        }
+    }
+}
+
+impl error::Error for EncodeError {
+    fn description(&self) -> &str {
+        match *self {
+            EncodeError::Io(ref x) => x.description(),
+            EncodeError::String(ref x) => x.description(),
+            EncodeError::NotSupportedType { .. } => "Not supported type",
+            EncodeError::U29Overflow { .. } => "Too large number",
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            EncodeError::Io(ref x) => x.cause(),
+            EncodeError::String(ref x) => x.cause(),
+            _ => None,
+        }
+    }
+}
+
+impl PartialEq for EncodeError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (&EncodeError::NotSupportedType { marker: x },
+             &EncodeError::NotSupportedType { marker: y }) => x == y,
+            (&EncodeError::U29Overflow { u29: x }, &EncodeError::U29Overflow { u29: y }) => x == y,
+            _ => false,
+        }
+    }
+}
+
+impl From<io::Error> for EncodeError {
+    fn from(f: io::Error) -> Self {
+        EncodeError::Io(f)
+    }
+}
+
+impl From<string::FromUtf8Error> for EncodeError {
+    fn from(f: string::FromUtf8Error) -> Self {
+        EncodeError::String(f)
+    }
+}
+
+pub type EncodeResult<T> = Result<T, EncodeError>;
 
 pub mod amf0;
 pub mod amf3;
