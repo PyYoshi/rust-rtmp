@@ -689,6 +689,21 @@ def gen_amf3_object():
     )
     write_json(OUTPUT_DIR, result4)
 
+    v5 = {
+        "index": 0,
+        "msg": "fugaaaaaaa"
+    }
+    enc5 = AMF3Encoder()
+    enc5.writeObject(v5)
+    result5 = build_result(
+        "amf3-object-hash",
+        AMF3,
+        amf3.TYPE_OBJECT,
+        v5,
+        enc5.stream.getvalue()
+    )
+    write_json(OUTPUT_DIR, result5)
+
 
 def gen_amf3_xml_string():
     v1 = "<a><b>hello world</b></a>"
