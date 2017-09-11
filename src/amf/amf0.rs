@@ -781,21 +781,15 @@ mod test {
 
     #[test]
     fn encode_avmplus() {
-        let value = Value::AvmPlus(amf3::Value::Object {
-            name: None,
-            sealed_count: 2,
-            pairs: vec![
-                Pair {
-                    key: "operation".to_string(),
-                    value: amf3::Value::Integer(5),
-                },
-                Pair {
-                    key: "timestamp".to_string(),
-                    value: amf3::Value::Integer(0),
-                },
+        let value = Value::AvmPlus(amf3::Value::Array {
+            assoc_entries: vec![],
+            dense_entries: vec![
+                amf3::Value::Double(1.1),
+                amf3::Value::Integer(2),
+                amf3::Value::Double(3.3),
+                amf3::Value::String("こんにちは、世界！".to_string()),
             ],
         });
-        macro_encode_equal!(value, "amf0-avmplus.bin");
-
+        macro_encode_equal!(value, "amf0-avmplus-array.bin");
     }
 }
