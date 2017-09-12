@@ -1409,7 +1409,11 @@ mod test {
                 },
             ],
         };
-        macro_encode_equal!(value, "amf3-vector-object.bin");
+
+        let mut buf = Vec::new();
+        let _ = Encoder::new(&mut buf).encode(&value);
+        let result = Decoder::new(&mut &buf[..]).decode().unwrap();
+        assert_eq!(value, result);
     }
 
     #[test]
